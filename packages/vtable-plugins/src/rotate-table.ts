@@ -1,16 +1,19 @@
-import {
+import * as vernder from '@visactor/vtable/es/vrender';
+import type { BaseTable } from '@visactor/vtable/src/core/BaseTable';
+import * as VTable from '@visactor/vtable';
+import type { TableEvents } from '@visactor/vtable/src/core/TABLE_EVENT_TYPE';
+import type { EventArg } from './types';
+import type { Matrix } from '@visactor/vutils';
+
+const {
   matrixAllocate,
   transformPointForCanvas,
   mapToCanvasPointForCanvas,
   registerGlobalEventTransformer,
   registerWindowEventTransformer,
   vglobal
-} from '@visactor/vtable/es/vrender';
-import type { BaseTable } from '@visactor/vtable/src/core/BaseTable';
-import * as VTable from '@visactor/vtable';
-import type { TableEvents } from '@visactor/vtable/src/core/TABLE_EVENT_TYPE';
-import type { EventArg } from './types';
-import type { Matrix } from '@visactor/vutils';
+} = vernder;
+
 // export type IRotateTablePluginOptions = {
 //   // 旋转角度
 //   rotate?: number;
