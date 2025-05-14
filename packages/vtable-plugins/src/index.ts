@@ -10,3 +10,5 @@ export * from './types';
 export * from './focus-highlight';
 export * from './table-carousel-animation';
 export * from './rotate-table';
+export * from './formula-cell';
+export * from './formula-editor';

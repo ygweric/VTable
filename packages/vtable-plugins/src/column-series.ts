@@ -59,9 +59,9 @@ export class ColumnSeriesPlugin implements VTable.plugins.IVTablePlugin {
   }
   generateColumn(index: number): { field?: string; title: string } {
     const column = {
-      // field: this.pluginOptions.generateColumnField
-      //   ? this.pluginOptions.generateColumnField(i)
-      //   : this.generateColumnField(i),
+      field: this.pluginOptions.generateColumnField
+        ? this.pluginOptions.generateColumnField(index)
+        : this.generateColumnField(index),
       title: this.pluginOptions.generateColumnTitle
         ? this.pluginOptions.generateColumnTitle(index)
         : this.generateColumnField(index)

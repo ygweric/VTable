@@ -1,170 +1,189 @@
-import * as VTable from '@visactor/vtable';
-import { bindDebugTool } from '@visactor/vtable/es/scenegraph/debug-tool';
-import { FocusHighlightPlugin } from '../../src';
-const CONTAINER_ID = 'vTable';
-const generatePersons = count => {
-  return Array.from(new Array(count)).map((_, i) => ({
-    id: i + 1,
-    email1: `${i + 1}@xxx.com`,
-    name: `小明${i + 1}`,
-    lastName: '王',
-    date1: '2022年9月1日',
-    tel: '000-0000-0000',
-    sex: i % 2 === 0 ? 'boy' : 'girl',
-    work: i % 2 === 0 ? 'back-end engineer' + (i + 1) : 'front-end engineer' + (i + 1),
-    city: 'beijing',
-    image:
-      '<svg width="16" height="16" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M34 10V4H8V38L14 35" stroke="#f5a623" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 44V10H40V44L27 37.7273L14 44Z" fill="#f5a623" stroke="#f5a623" stroke-width="1" stroke-linejoin="round"/></svg>'
-  }));
-};
+import type { CellRange } from '@visactor/vtable/es/ts-types';
+import { TABLE_EVENT_TYPE } from '@visactor/vtable';
+import type { BaseTableAPI, plugins } from '@visactor/vtable';
+interface IHighlightHeaderWhenSelectCellPluginOptions {
+  rowHighlight?: boolean;
+  colHighlight?: boolean;
+  colHighlightBGColor?: string;
+  colHighlightColor?: string;
+  rowHighlightBGColor?: string;
+  rowHighlightColor?: string;
+}
 
-export function createTable() {
-  const highlightPlugin = new FocusHighlightPlugin({
-    highlightRange: {
-      start: {
-        col: 0,
-        row: 5
-      },
-      end: {
-        col: 6,
-        row: 6
-      }
-    }
-  });
-  const records = generatePersons(20);
-  const columns: VTable.ColumnsDefine = [
-    {
-      field: 'image',
-      title: '行号',
-      width: 80,
-      cellType: 'image',
-      keepAspectRatio: true
-    },
-    {
-      field: 'id',
-      title: 'ID',
-      width: 'auto',
-      minWidth: 50,
-      sort: true
-    },
-    {
-      field: 'email1',
-      title: 'email',
-      width: 200,
-      sort: true,
-      style: {
-        underline: true,
-        underlineDash: [2, 0],
-        underlineOffset: 3
-      }
-    },
-    {
-      title: 'full name',
-      columns: [
-        {
-          field: 'name',
-          title: 'First Name',
-          width: 200
-        },
-        {
-          field: 'name',
-          title: 'Last Name',
-          width: 200
-        }
-      ]
-    },
-    {
-      field: 'date1',
-      title: 'birthday',
-      width: 200
-    },
-    {
-      field: 'sex',
-      title: 'sex',
-      width: 100
-    }
+export class HighlightHeaderWhenSelectCellPlugin implements plugins.IVTablePlugin {
+  id = `highlight-header-when-select-cell-${Date.now()}`;
+  name = 'Highlight Header When Select Cell';
+  runTime = [
+    TABLE_EVENT_TYPE.INITIALIZED,
+    TABLE_EVENT_TYPE.SELECTED_CLEAR,
+    TABLE_EVENT_TYPE.SELECTED_CELL,
+    TABLE_EVENT_TYPE.MOUSEMOVE_TABLE
   ];
-  const option: VTable.ListTableConstructorOptions = {
-    container: document.getElementById(CONTAINER_ID),
-    records,
-    columns,
-    theme: VTable.themes.DARK,
-    select: {
-      headerSelectMode: 'cell'
-    },
-    // heightMode: 'adaptive',
-    // select: {
-    //   disableSelect: true
-    // },
-    plugins: [highlightPlugin]
-  };
-  const tableInstance = new VTable.ListTable(option);
-  window.tableInstance = tableInstance;
-  const columns1: VTable.ColumnsDefine = [
-    {
-      field: 'image',
-      title: '行号',
-      width: 80,
-      cellType: 'image',
-      keepAspectRatio: true
-    },
-    {
-      field: 'id',
-      title: 'ID',
-      width: 'auto',
-      minWidth: 50,
-      sort: true
-    },
-    {
-      field: 'email1',
-      title: 'email',
-      width: 200,
-      sort: true,
-      style: {
-        underline: true,
-        underlineDash: [2, 0],
-        underlineOffset: 3
-      }
-    },
-    {
-      title: 'full name',
-      columns: [
-        {
-          field: 'name',
-          title: 'First Name',
-          width: 200
-        },
-        {
-          field: 'name',
-          title: 'Last Name',
-          width: 200
-        }
-      ]
-    },
-    {
-      field: 'date1',
-      title: 'birthday',
-      width: 200
+  table: BaseTableAPI;
+  pluginOptions: IHighlightHeaderWhenSelectCellPluginOptions;
+  colHeaderRanges: CellRange[] = [];
+  rowHeaderRanges: CellRange[] = [];
+  constructor(pluginOptions: IHighlightHeaderWhenSelectCellPluginOptions) {
+    this.pluginOptions = pluginOptions;
+  }
+  run(...args: any[]) {
+    // const eventArgs = args[0];
+    const runTime = args[1];
+    const table: BaseTableAPI = args[2];
+    this.table = table;
+    if (runTime === TABLE_EVENT_TYPE.SELECTED_CLEAR) {
+      this.clearHighlight();
+    } else if (runTime === TABLE_EVENT_TYPE.SELECTED_CELL) {
+      this.updateHighlight();
+    } else if (runTime === TABLE_EVENT_TYPE.MOUSEMOVE_TABLE) {
+      this.updateHighlight();
+    } else if (runTime === TABLE_EVENT_TYPE.INITIALIZED) {
+      this.registerStyle();
     }
-  ];
-  setTimeout(() => {
-    const option1: VTable.ListTableConstructorOptions = {
-      container: document.getElementById(CONTAINER_ID),
-      records,
-      columns: columns1,
-      theme: VTable.themes.DARK,
-      select: {
-        headerSelectMode: 'cell'
-      },
-      // heightMode: 'adaptive',
-      // select: {
-      //   disableSelect: true
-      // },
-      plugins: [highlightPlugin]
-    };
-    tableInstance.updateOption(option1);
-  }, 2000);
-  bindDebugTool(tableInstance.scenegraph.stage, {
-    customGrapicKeys: ['col', 'row']
-  });
+  }
+
+  registerStyle() {
+    this.table.registerCustomCellStyle('col-highlight', {
+      bgColor: this.pluginOptions?.colHighlightBGColor ?? '#82b2f5',
+      color: this.pluginOptions?.colHighlightColor ?? '#FFF'
+    });
+
+    this.table.registerCustomCellStyle('row-highlight', {
+      bgColor: this.pluginOptions?.rowHighlightBGColor ?? '#82b2f5',
+      color: this.pluginOptions?.rowHighlightColor ?? 'yellow'
+    });
+  }
+
+  clearHighlight() {
+    if (this.colHeaderRanges) {
+      this.colHeaderRanges.forEach(range => {
+        this.table.arrangeCustomCellStyle({ range }, undefined);
+      });
+    }
+    if (this.rowHeaderRanges) {
+      this.rowHeaderRanges.forEach(range => {
+        this.table.arrangeCustomCellStyle({ range }, undefined);
+      });
+    }
+    // clear range
+    this.colHeaderRanges = [];
+    this.rowHeaderRanges = [];
+  }
+
+  updateHighlight() {
+    if (this.pluginOptions?.colHighlight === false && this.pluginOptions?.rowHighlight === false) {
+      return;
+    }
+    const selectRanges = this.table.getSelectedCellRanges();
+    if (selectRanges.length < 2) {
+      this.clearHighlight();
+      // return;
+    }
+    for (let i = 0; i < selectRanges.length; i++) {
+      const selectRange = selectRanges[i];
+      const rowSelectRange = [selectRange.start.row, selectRange.end.row];
+      rowSelectRange.sort((a, b) => a - b); // sort
+      const colSelectRange = [selectRange.start.col, selectRange.end.col];
+      colSelectRange.sort((a, b) => a - b); // sort
+
+      let colHeaderRange: CellRange;
+      let rowHeaderRange: CellRange;
+      if (this.table.isPivotTable()) {
+        colHeaderRange = {
+          start: {
+            col: colSelectRange[0],
+            row: 0
+          },
+          end: {
+            col: colSelectRange[1],
+            row: this.table.columnHeaderLevelCount - 1
+          }
+        };
+        rowHeaderRange = {
+          start: {
+            col: 0,
+            row: rowSelectRange[0]
+          },
+          end: {
+            col: this.table.rowHeaderLevelCount - 1,
+            row: rowSelectRange[1]
+          }
+        };
+      } else if (this.table.internalProps.transpose) {
+        rowHeaderRange = {
+          start: {
+            col: 0,
+            row: rowSelectRange[0]
+          },
+          end: {
+            col: this.table.rowHeaderLevelCount - 1,
+            row: rowSelectRange[1]
+          }
+        };
+      } else {
+        colHeaderRange = {
+          start: {
+            col: colSelectRange[0],
+            row: 0
+          },
+          end: {
+            col: colSelectRange[1],
+            row: this.table.columnHeaderLevelCount - 1
+          }
+        };
+        if (this.table.internalProps.rowSeriesNumber) {
+          rowHeaderRange = {
+            start: {
+              col: 0,
+              row: rowSelectRange[0]
+            },
+            end: {
+              col: 0,
+              row: rowSelectRange[1]
+            }
+          };
+        }
+      }
+
+      if (
+        this.pluginOptions?.colHighlight !== false &&
+        !this.colHeaderRanges.find(range => isSameRange(range, colHeaderRange))
+      ) {
+        // this.colHeaderRanges && this.table.arrangeCustomCellStyle({ range: this.colHeaderRanges }, undefined);
+        colHeaderRange && this.table.arrangeCustomCellStyle({ range: colHeaderRange }, 'col-highlight');
+        this.colHeaderRanges.push(colHeaderRange);
+      }
+
+      if (
+        this.pluginOptions?.rowHighlight !== false &&
+        !this.rowHeaderRanges.find(range => isSameRange(range, rowHeaderRange))
+      ) {
+        // this.rowHeaderRanges && this.table.arrangeCustomCellStyle({ range: this.rowHeaderRanges }, undefined);
+        rowHeaderRange && this.table.arrangeCustomCellStyle({ range: rowHeaderRange }, 'row-highlight');
+        this.rowHeaderRanges.push(rowHeaderRange);
+      }
+    }
+  }
+  update() {
+    this.registerStyle();
+    this.updateHighlight();
+  }
+  release() {
+    this.rowHeaderRanges = [];
+    this.colHeaderRanges = [];
+  }
+}
+
+function isSameRange(a: CellRange | undefined, b: CellRange | undefined) {
+  if (a === undefined && b === undefined) {
+    return true;
+  }
+
+  if (a === undefined || b === undefined) {
+    return false;
+  }
+
+  return (
+    a.start.col === b.start.col && a.start.row === b.start.row && a.end.col === b.end.col && a.end.row === b.end.row
+  );
 }

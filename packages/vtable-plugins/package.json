@@ -34,7 +34,9 @@
     "access": "public"
   },
   "dependencies": {
-    "@visactor/vutils": "~0.19.1"
+    "@visactor/vutils": "~0.19.1",
+    "@formulajs/formulajs": "~4.5.1",
+    "mathjs": "~11.1.0"
   },
   "peerDependencies": {
     "@visactor/vtable": "workspace:*"

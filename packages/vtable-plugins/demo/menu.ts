@@ -40,6 +40,10 @@ export const menus = [
     name: 'rotate-table'
   },
   {
+    path: 'formula-cell',
+    name: 'formula-cell'
+  },
+  {
     menu: 'pivot-plugin',
     children: [
       {

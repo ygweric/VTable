@@ -80,6 +80,7 @@ export function createTable() {
     padding: 30,
     plugins: [addRowColumn]
   };
+  addRowColumn.pluginOptions.addRowEnable = true;
   const tableInstance = new VTable.ListTable(option);
   window.tableInstance = tableInstance;
 

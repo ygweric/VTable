@@ -25,12 +25,12 @@ export function createTable() {
     columnCount: 100
   });
   const rowSeries = new RowSeriesPlugin({
-    rowCount: 100
-    // fillRowRecord: index => {
-    //   const record = generatePersons(1)[0];
-    //   record.id = index;
-    //   return record;
-    // }
+    rowCount: 100,
+    fillRowRecord: index => {
+      const record = generatePersons(1)[0];
+      record.id = index;
+      return record;
+    }
   });
   const option: VTable.ListTableConstructorOptions = {
     container: document.getElementById(CONTAINER_ID),
