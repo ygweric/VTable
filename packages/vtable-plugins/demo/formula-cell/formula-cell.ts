@@ -10,20 +10,30 @@ import {
 } from '../../src';
 const CONTAINER_ID = 'vTable';
 
+const formulaMap: Record<string, any> = {};
 const inputEditor = new InputEditor();
-const formulaEditor = new FormulaEditor();
+const formulaEditor = new FormulaEditor({
+  getInitExpression: (position, table) => {
+    return formulaMap[`${position.col}_${position.row}`] ?? ``;
+  },
+  onEditSuccess: (position, value, expression) => {
+    // 更新依赖单元格
+    const { col, row } = position;
+    formulaMap[`${col}_${row}`] = expression;
+    // table.changeCellValue(col, row, value + expression);
+  }
+});
 VTable.register.editor('inputEditor', inputEditor);
 VTable.register.editor('formulaEditor', formulaEditor);
 
-const formulaMap: Record<string, any> = {};
 const generatePersons = count => {
   return Array.from(new Array(count)).map((_, i) => {
     const row = i + 1;
-    const formulaValue = `=A${row}*B${row}`;
-    formulaMap[`${3}*${row}`] = formulaValue;
+    const formulaValue = `=A${row}+B${row}`;
+    formulaMap[`${3}_${row}`] = formulaValue;
     return {
-      count: 1000 + i,
-      price: 2000 + i,
+      count: 5 + i,
+      price: 10 + i,
       total: formulaValue
     };
   });

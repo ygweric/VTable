@@ -2,8 +2,26 @@ import type * as VTable from '@visactor/vtable';
 import type { ValidateEnum, CellAddress, EditContext, IEditor, RectProps } from '@visactor/vtable-editors';
 import * as math from 'mathjs';
 
+// TODO: 更新依赖单元格
+// TODO: 解决循环引用
+
 export interface FormulaEditorConfig {
   readonly?: boolean;
+  /**
+   * 编辑成功回调, 更新外部表达式存储单元
+   * @param position 单元格位置
+   * @param value 单元格值
+   * @param expression 表达式
+   * @param table 表格实例
+   */
+  onEditSuccess?: (position: CellAddress, value: string, expression: string, table: VTable.ListTable) => void;
+  /**
+   * 获取初始函数表达式，
+   * @param position 单元格位置
+   * @param table 表格实例
+   * @returns 初始表达式
+   */
+  getInitExpression?: (position: CellAddress, table: VTable.ListTable) => string;
 }
 
 /**
@@ -58,16 +76,16 @@ function calculateFormulaCell(value: string, tableInstance?: VTable.ListTable) {
   if (!value.startsWith('=')) {
     return value;
   }
-  try {
-    const expression = value.substring(1); // 去掉等号
-    const result = evaluateFormula(expression, tableInstance);
-    // eslint-disable-next-line no-console
-    console.log('expression: ', expression, ', result: ', result);
-    return result;
-  } catch (error) {
-    console.error('公式计算错误:', error);
-    return `#ERROR!`;
-  }
+  const expression = value.substring(1); // 去掉等号
+  const result = evaluateFormula(expression, tableInstance);
+  // eslint-disable-next-line no-console
+  console.log('expression: ', expression, ', result: ', result);
+  return result;
+  // try {
+  // } catch (error) {
+  //   console.error('公式计算错误:', error);
+  //   return `#ERROR!`;
+  // }
 }
 
 /**
@@ -78,7 +96,7 @@ function calculateFormulaCell(value: string, tableInstance?: VTable.ListTable) {
  */
 function evaluateFormula(formula: string, tableInstance: VTable.ListTable) {
   // 替换单元格引用为实际值
-  const parsedFormula = formula.replace(/([A-Z]+\d+)/g, (match: any, cellRef: any) => {
+  const parsedFormula = formula.toUpperCase().replace(/([A-Z]+\d+)/g, (match: any, cellRef: any) => {
     const { col, row } = parseExcelCellReference(cellRef);
     const cellValue = tableInstance.getCellValue(col, row);
     return cellValue ?? 0;
@@ -88,20 +106,11 @@ function evaluateFormula(formula: string, tableInstance: VTable.ListTable) {
   return math.evaluate(parsedFormula);
 }
 
-/**
- * 更新依赖单元格
- * @param changedCellId 改变的单元格
- */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function updateDependentCells(changedCellId: any) {
-  // TODO: 更新依赖单元格
-}
-
 export class FormulaEditor implements IEditor {
   editorType: string = 'Formula';
   editorConfig: FormulaEditorConfig;
   container: HTMLElement;
-  successCallback?: () => void;
+  onEditSuccess?: () => void;
   element: HTMLInputElement;
   finalValue: string;
 
@@ -153,20 +162,22 @@ export class FormulaEditor implements IEditor {
   }
 
   setValue(value: string) {
-    this.element.value = typeof value !== 'undefined' ? value : '';
+    this.element.value = value ?? '';
   }
 
   getValue() {
     return this.finalValue;
   }
 
-  onStart({ value, referencePosition, container, endEdit }: EditContext<string>) {
+  onStart({ value, referencePosition, container, endEdit, table, col, row }: EditContext<string>) {
     this.container = container;
-    this.successCallback = endEdit;
+    this.onEditSuccess = endEdit;
     if (!this.element) {
       this.createElement();
 
-      if (value !== undefined && value !== null) {
+      if (this.editorConfig?.getInitExpression) {
+        this.setValue(this.editorConfig?.getInitExpression?.({ col, row }, table));
+      } else {
         this.setValue(value);
       }
       if (referencePosition?.rect) {
@@ -208,17 +219,19 @@ export class FormulaEditor implements IEditor {
     return target === this.element;
   }
 
-  validateValue(newValue?: any, oldValue?: any, position?: CellAddress, table?: any): boolean | ValidateEnum {
-    const realNewValue = this.element.value;
-    if (!realNewValue.startsWith('=')) {
+  validateValue(_?: any, oldValue?: any, position?: CellAddress, table?: any): boolean | ValidateEnum {
+    const newValue = this.element.value;
+    if (!newValue.startsWith('=')) {
       // 不是公式，直接返回true
       return true;
     }
 
     try {
-      this.finalValue = calculateFormulaCell(realNewValue, table);
+      this.finalValue = calculateFormulaCell(newValue, table);
+      this.editorConfig?.onEditSuccess?.(position, this.finalValue, newValue, table);
       return true;
     } catch (error) {
+      console.error('公式计算错误:', error);
       return false;
     }
   }
