@@ -37,6 +37,10 @@ export const menus = [
       },
       {
         path: 'list',
+        name: 'list-tree-100w'
+      },
+      {
+        path: 'list',
         name: 'list-highlightInRange'
       },
       {

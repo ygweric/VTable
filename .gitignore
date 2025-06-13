@@ -102,6 +102,7 @@ common/scripts/pre-commit
 docs/public/documents
 
 packages/vtable/nodejs/*.png
+packages/vtable/examples/mock/*
 
 # build
 .rollup.cache/
