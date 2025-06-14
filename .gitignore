@@ -109,3 +109,6 @@ packages/vtable/examples/mock/*
 tsconfig.tsbuildinfo
 
 .history
+
+
+**/.*.bak.ignore.txt

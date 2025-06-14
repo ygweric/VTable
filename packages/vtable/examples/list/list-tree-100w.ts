@@ -3,7 +3,8 @@ import * as VTable from '../../src';
 import VChart from '@visactor/vchart';
 import { bindDebugTool } from '../../src/scenegraph/debug-tool';
 
-import records from '../mock/table/file_10w_Tree.json';
+import records from '../mock/table/file_2w_Tree.json';
+// import records from '../mock/table/file_10w_Tree.json';
 // import records from '../mock/table/file_49w_Tree.json';
 // import records from '../mock/table/file_107w_Tree.json';
 

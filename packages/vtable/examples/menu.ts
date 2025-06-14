@@ -29,6 +29,19 @@ export const menus = [
     ]
   },
   {
+    menu: 'GTable测试',
+    children: [
+      {
+        path: 'list',
+        name: 'list-tree-100w'
+      },
+      {
+        path: 'list',
+        name: 'list-data-data-modal'
+      }
+    ]
+  },
+  {
     menu: '基本表格',
     children: [
       {
@@ -38,6 +51,10 @@ export const menus = [
       {
         path: 'list',
         name: 'list-tree-100w'
+      },
+      {
+        path: 'list',
+        name: 'list-data-data-modal'
       },
       {
         path: 'list',
