@@ -32,12 +32,20 @@ export const menus = [
     menu: 'GTable测试',
     children: [
       {
-        path: 'list',
-        name: 'list-tree-100w'
+        path: 'gtable',
+        name: 'local-tree-100w'
       },
       {
-        path: 'list',
-        name: 'list-data-data-modal'
+        path: 'gtable',
+        name: 'read-data-modal'
+      },
+      {
+        path: 'gtable',
+        name: 'vtable-tree'
+      },
+      {
+        path: 'gtable',
+        name: 'virtual-tree'
       }
     ]
   },

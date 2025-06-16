@@ -47,16 +47,16 @@ export function createTable() {
   const loadedData = {};
   const dataSource = new VTable.data.CachedDataSource({
     get(index) {
-      console.log('get', index);
+      // console.log('get', `${index}`);
       // 每一批次请求100条数据 0-99 100-199 200-299
       const pageSize = 1;
       const loadStartIndex = Math.floor(index / pageSize) * pageSize;
-      // 判断是否已请求过？
+      // 判断是否已请求过？/*  */
       // if (!loadedData[loadStartIndex]) {
       // }
       const promiseObject = getRecordsWithAjax(loadStartIndex, pageSize); // return Promise Object
       loadedData[loadStartIndex] = promiseObject;
-      return loadedData[loadStartIndex][index - loadStartIndex];
+      return loadedData[loadStartIndex][index - loadStartIndex]; /*  */
       // return loadedData[loadStartIndex].then((data: any) => {
       //   return data[index - loadStartIndex]; //获取批次数据列表中的index对应数据
       // });
@@ -67,7 +67,7 @@ export function createTable() {
     deleted(index: number[]) {
       this.length -= index.length;
     },
-    length: 5000 //all records count
+    length: 500 * 10000 //all records count
   });
 
   const columns: VTable.ColumnsDefine = [
