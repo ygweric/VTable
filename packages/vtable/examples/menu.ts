@@ -46,6 +46,10 @@ export const menus = [
       {
         path: 'gtable',
         name: 'virtual-tree'
+      },
+      {
+        path: 'gtable',
+        name: 'test-CachedDataSoruce'
       }
     ]
   },
