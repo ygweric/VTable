@@ -1,6 +1,10 @@
 import * as VTable from '../../src';
-import records from '../mock/table/flat-tree_0k.json';
 import { TreeListIndexConvertor } from './utils/TreeListIndexConvertor';
+// import records from '../mock/table/flat-tree_100.json';
+// import records_ from '../mock/table/flat-tree_7x5_98k.json';
+import records_ from '../mock/table/flat-tree_8x5_488k.json';
+
+const records = records_ as any[];
 
 const CONTAINER_ID = 'vTable';
 
@@ -76,20 +80,20 @@ export function createTable() {
 
 const cacheCachedDataSource = new VTable.data.CachedDataSource({
   get(index) {
-    console.log(`get ${index}`);
+    // console.log(`get ${index}`);
     const dataIndex = convertor.rowToIndex(index);
-    console.log(`dataIndex: ${dataIndex}`);
+    // console.log(`dataIndex: ${dataIndex}`);
     if (dataIndex === null) {
       return null;
     }
     return records[dataIndex];
   },
   added(index: number, count: number) {
-    console.log(`added ${index} ${count}`);
+    // console.log(`added ${index} ${count}`);
     // this.length += count;
   },
   deleted(index: number[]) {
-    console.log(`deleted ${index}`);
+    // console.log(`deleted ${index}`);
     // this.length -= index.length;
   },
   length: records.length //all records count
@@ -106,10 +110,10 @@ function toggleTreeNode(e) {
   const isCollapsed = convertor.isCollapsed(treeId);
   console.log(`row:${row} -> flatTreeIndex:${flatTreeIndex} -> treeId:${treeId} -> isCollapsed: ${isCollapsed}`);
   const descendantNodesToDelete = convertor.getDescendantNodes(treeId);
-  console.log(
-    `descendanToDelete: `,
-    descendantNodesToDelete.map(item => `rowIndex: ${item.rowIndex} treeId: ${item.data.treeId}`)
-  );
+  // console.log(
+  //   `descendanToDelete: `,
+  //   descendantNodesToDelete.map(item => `rowIndex: ${item.rowIndex} treeId: ${item.data.treeId}`)
+  // );
   if (!isCollapsed) {
     const idsToDelete = descendantNodesToDelete
       .filter(item => item.rowIndex !== null)
