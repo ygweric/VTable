@@ -24,8 +24,10 @@ export function updateRow(
 
   const scene = table.scenegraph;
   // deduplication
-  const removeRows = deduplication(removeCells.map(cell => cell.row)).sort((a, b) => b - a);
-  const addRows = deduplication(addCells.map(cell => cell.row)).sort((a, b) => a - b);
+  // const removeRows = deduplication(removeCells.map(cell => cell.row)).sort((a, b) => b - a);
+  // const addRows = deduplication(addCells.map(cell => cell.row)).sort((a, b) => a - b);
+  const removeRows = removeCells.map(cell => cell.row).sort((a, b) => b - a);
+  const addRows = addCells.map(cell => cell.row).sort((a, b) => a - b);
   const updateRows = deduplication(updateCells.map(cell => cell.row)).sort((a, b) => a - b);
 
   let rowUpdatePos;
