@@ -1,6 +1,7 @@
 import * as VTable from '../../src';
 import { TreeListIndexConvertor } from './utils/TreeListIndexConvertor';
-// import records from '../mock/table/flat-tree_100.json';
+// import records_ from '../mock/table/flat-tree_3.json';
+// import records_ from '../mock/table/flat-tree_100.json';
 // import records_ from '../mock/table/flat-tree_7x5_98k.json';
 import records_ from '../mock/table/flat-tree_8x5_488k.json';
 
@@ -16,9 +17,18 @@ let tableInstance: VTable.ListTable;
 export function createTable() {
   const columns: VTable.ColumnsDefine = [
     {
-      field: 'button',
+      field: 'treeId',
       cellType: 'button',
-      text: '展开/折叠',
+      text: ({ row, col, table, value, dataValue, percentile, cellHeaderPaths }) => {
+        // console.log('text', row, col, table, value, dataValue, percentile, cellHeaderPaths);
+        // console.log('treeId-column', row, col, value, dataValue);
+        const isCollapsed = convertor.isCollapsed(dataValue);
+        if (isCollapsed) {
+          return '>';
+        } else {
+          return 'v';
+        }
+      },
       width: '100',
       style: {
         color: '#FFF',
@@ -74,16 +84,18 @@ export function createTable() {
 
 const cacheCachedDataSource = new VTable.data.CachedDataSource({
   get(index) {
-    // console.log(`get ${index}`);
     const timeBegin = performance.now();
     const dataIndex = convertor.rowToIndex(index);
     // console.log(`dataIndex: ${dataIndex}`);
     if (dataIndex === null) {
+      // console.log(`get ${index} with null`);
       return null;
     }
     const timeEnd = performance.now();
     // console.log(`get ${index} time: ${timeEnd - timeBegin}ms`);
-    return records[dataIndex];
+    const result = records[dataIndex];
+    // console.log(`get ${index} with ${JSON.stringify(result)}`);
+    return result;
   },
   added(index: number, count: number) {
     // console.log(`added ${index} ${count}`);
@@ -100,9 +112,10 @@ function toggleTreeNode(e) {
   console.log('toggleTreeNode', e);
 
   const { row: row_, col } = e;
-  const row = row_ - 1;
+  const row = row_ - 1; // 减去表头
   const flatTreeIndex = convertor.rowToIndex(row);
-  const treeId = records[flatTreeIndex as number].treeId;
+  const record = records[flatTreeIndex as number];
+  const treeId = record.treeId;
 
   const isCollapsed = convertor.isCollapsed(treeId);
   console.log(`row:${row} -> flatTreeIndex:${flatTreeIndex} -> treeId:${treeId} -> isCollapsed: ${isCollapsed}`);
@@ -126,6 +139,10 @@ function toggleTreeNode(e) {
     convertor.setCollapsed(treeId, !isCollapsed);
     tableInstance.addRecords(recordsToAdd, row + 1);
   }
+  console.log('updateRecords', record, row_);
+  // tableInstance.updateRecords([{ ...record, id: 123 }], [row_]);
+  // 必须调用changeCellValue，column的text回调函数被调用更新
+  tableInstance.changeCellValue(0, row_, treeId);
 
   // convertor.toggleCollapsed(treeId);
 
