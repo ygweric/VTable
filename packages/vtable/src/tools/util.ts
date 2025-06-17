@@ -443,3 +443,33 @@ export function traverseObject(obj: any, childrenProperty: string, callback: Fun
     obj[childrenProperty].forEach((child: any) => traverseObject(child, childrenProperty, callback));
   }
 }
+
+/**
+ * 安全的数组插入方法，避免大数组导致的调用栈溢出
+ * @param {Array} targetArray - 目标数组
+ * @param {number} insertIndex - 插入位置
+ * @param {Array} itemsToInsert - 要插入的元素数组
+ * @param {number} batchSize - 批处理大小，默认10000
+ * @returns {Array} 修改后的数组
+ */
+export function safeArrayInsert(
+  targetArray: any[],
+  insertIndex: number,
+  itemsToInsert: any[],
+  batchSize = 10000
+): any[] {
+  if (itemsToInsert.length === 0) {
+    return targetArray;
+  }
+
+  // 如果要插入的元素数量较小，直接使用splice
+  if (itemsToInsert.length <= batchSize) {
+    targetArray.splice(insertIndex, 0, ...itemsToInsert);
+    return targetArray;
+  }
+
+  // 对于大数组，使用数组切片和合并的方式
+  const beforePart = targetArray.slice(0, insertIndex);
+  const afterPart = targetArray.slice(insertIndex);
+  return beforePart.concat(itemsToInsert, afterPart);
+}

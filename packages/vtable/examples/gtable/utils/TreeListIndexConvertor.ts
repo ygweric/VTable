@@ -1,3 +1,5 @@
+import { safeArrayInsert } from '../../../src/tools/util';
+
 /**
  * 树形列表数据行号与索引转换工具
  * 用于处理扁平树形数据在展开/折叠状态下的行号与数组索引对应关系
@@ -126,6 +128,31 @@ class TreeListIndexConvertor {
     }, 2000);
 
     return result;
+  }
+
+  /**
+   * 安全的数组插入方法，避免大数组导致的调用栈溢出
+   * @param {Array} targetArray - 目标数组
+   * @param {number} insertIndex - 插入位置
+   * @param {Array} itemsToInsert - 要插入的元素数组
+   * @param {number} batchSize - 批处理大小，默认10000
+   * @returns {Array} 修改后的数组
+   */
+  _safeArrayInsert222(targetArray: any[], insertIndex: number, itemsToInsert: any[], batchSize = 10000): any[] {
+    if (itemsToInsert.length === 0) {
+      return targetArray;
+    }
+
+    // 如果要插入的元素数量较小，直接使用splice
+    if (itemsToInsert.length <= batchSize) {
+      targetArray.splice(insertIndex, 0, ...itemsToInsert);
+      return targetArray;
+    }
+
+    // 对于大数组，使用数组切片和合并的方式
+    const beforePart = targetArray.slice(0, insertIndex);
+    const afterPart = targetArray.slice(insertIndex);
+    return beforePart.concat(itemsToInsert, afterPart);
   }
 
   /**
@@ -261,8 +288,11 @@ class TreeListIndexConvertor {
     // 按照数据索引排序，确保插入顺序正确
     nodesToAdd.sort((a, b) => a - b);
 
-    // 在正确位置插入新的可见节点
-    this.visibleDataIndexesCache.splice(parentPositionInVisible + 1, 0, ...nodesToAdd);
+    // 优化：使用安全的数组插入方法，避免调用栈溢出
+    if (nodesToAdd.length === 0) return;
+
+    const insertPosition = parentPositionInVisible + 1;
+    this.visibleDataIndexesCache = safeArrayInsert(this.visibleDataIndexesCache, insertPosition, nodesToAdd);
   }
 
   /**

@@ -3,7 +3,9 @@ import { TreeListIndexConvertor } from './utils/TreeListIndexConvertor';
 // import records_ from '../mock/table/flat-tree_3.json';
 // import records_ from '../mock/table/flat-tree_100.json';
 // import records_ from '../mock/table/flat-tree_7x5_98k.json';
-import records_ from '../mock/table/flat-tree_8x5_488k.json';
+// import records_ from '../mock/table/flat-tree_8x5_488k.json';
+import records_ from '../mock/table/flat-tree_9x5_1015k.json';
+// import records_ from '../mock/table/flat-tree_9x5_2441k.json';
 
 const records = records_ as any[];
 

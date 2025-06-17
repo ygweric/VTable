@@ -17,7 +17,7 @@ import type {
 import { AggregationType, HierarchyState } from '../ts-types';
 import { applyChainSafe, getOrApply, obj, isPromise, emptyFn } from '../tools/helper';
 import { EventTarget } from '../event/EventTarget';
-import { getValueByPath, isAllDigits } from '../tools/util';
+import { getValueByPath, isAllDigits, safeArrayInsert } from '../tools/util';
 import { calculateArrayDiff } from '../tools/diff-cell';
 import { arrayEqual, cloneDeep, isArray, isNumber, isObject, isValid } from '@visactor/vutils';
 import type { BaseTableAPI } from '../ts-types/base-table';
@@ -876,7 +876,8 @@ export class DataSource extends EventTarget implements DataSourceAPI {
   addRecords(recordArr: any, index: number) {
     if (Array.isArray(this.records)) {
       if (Array.isArray(recordArr)) {
-        this.records.splice(index, 0, ...recordArr);
+        // this.records.splice(index, 0, ...recordArr);
+        safeArrayInsert(this.records, index, recordArr);
         this.adjustBeforeChangedRecordsMap(index, recordArr.length);
         for (let i = 0; i < recordArr.length; i++) {
           this.currentIndexedData.push(this.currentIndexedData.length);
