@@ -1,10 +1,10 @@
 import * as VTable from '../../src';
 import { TreeListIndexConvertor } from './utils/TreeListIndexConvertor';
 // import records_ from '../mock/table/flat-tree_3.json';
-// import records_ from '../mock/table/flat-tree_100.json';
+import records_ from '../mock/table/flat-tree_100.json';
 // import records_ from '../mock/table/flat-tree_7x5_98k.json';
 // import records_ from '../mock/table/flat-tree_8x5_488k.json';
-import records_ from '../mock/table/flat-tree_9x5_1015k.json';
+// import records_ from '../mock/table/flat-tree_9x5_1015k.json';
 // import records_ from '../mock/table/flat-tree_9x5_2441k.json';
 
 const records = records_ as any[];
@@ -52,8 +52,17 @@ export function createTable() {
     {
       field: 'logRow',
       cellType: 'button',
-      text: 'log row',
-      width: '100',
+      text: ({ row, col, table, value, dataValue, percentile, cellHeaderPaths }) => {
+        switch (row) {
+          case 1:
+            return 'add Record 1.1.6';
+          case 2:
+            return 'remove record 1.1.6';
+          default:
+            return 'log row info';
+        }
+      },
+      width: '200',
       style: {
         color: '#FFF',
         buttonStyle: {
@@ -79,7 +88,18 @@ export function createTable() {
         toggleTreeNode(e);
         break;
       case 3:
-        logRow(e);
+        switch (e.row) {
+          case 1:
+            convertor.addNode({ treeId: '1.1.6', id: 116 }, e.row + 1);
+            const newRow = convertor.indexToRow(e.row + 1);
+            tableInstance.addRecords([{ treeId: '1.1.6', id: 116 }], newRow);
+            break;
+          case 2:
+            logRow(e);
+            break;
+          default:
+            logRow(e);
+        }
     }
   });
 }

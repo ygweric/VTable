@@ -138,7 +138,7 @@ class TreeListIndexConvertor {
    * @param {number} batchSize - 批处理大小，默认10000
    * @returns {Array} 修改后的数组
    */
-  _safeArrayInsert222(targetArray: any[], insertIndex: number, itemsToInsert: any[], batchSize = 10000): any[] {
+  _safeArrayInsert(targetArray: any[], insertIndex: number, itemsToInsert: any[], batchSize = 10000): any[] {
     if (itemsToInsert.length === 0) {
       return targetArray;
     }
@@ -673,6 +673,266 @@ class TreeListIndexConvertor {
     }
 
     return true;
+  }
+
+  // ========== 树形数据增删查改操作 ==========
+
+  /**
+   * 更新树形数据并重建缓存
+   * @param {Array} newTreeListData - 新的树形数据
+   */
+  updateTreeData(newTreeListData: any[]) {
+    this.treeListData = newTreeListData;
+    this.rebuildAllCaches();
+  }
+
+  /**
+   * 添加新节点
+   * @param {any} nodeData - 节点数据，必须包含treeId
+   * @param {number} insertIndex - 插入位置，如果不指定则添加到末尾
+   * @returns {boolean} 是否添加成功
+   */
+  addNode(nodeData: any, insertIndex?: number): boolean {
+    if (!nodeData || !nodeData.treeId) {
+      console.error('节点数据必须包含treeId');
+      return false;
+    }
+
+    // 检查treeId是否已存在
+    if (this.treeIdToDataIndexMap.has(nodeData.treeId)) {
+      console.error(`节点 ${nodeData.treeId} 已存在`);
+      return false;
+    }
+
+    const actualInsertIndex = insertIndex !== undefined ? insertIndex : this.treeListData.length;
+
+    // 插入节点
+    this.treeListData.splice(actualInsertIndex, 0, nodeData);
+
+    // 更新基础缓存
+    this._updateBasicCachesAfterInsert(nodeData.treeId, actualInsertIndex);
+
+    // 清除状态相关缓存
+    this._clearStateDependentCaches();
+
+    return true;
+  }
+
+  /**
+   * 删除节点（包括其所有子孙节点）
+   * @param {string} treeId - 要删除的节点treeId
+   * @returns {boolean} 是否删除成功
+   */
+  removeNode(treeId: string): boolean {
+    const dataIndex = this.treeIdToDataIndexMap.get(treeId);
+    if (dataIndex === undefined) {
+      console.error(`节点 ${treeId} 不存在`);
+      return false;
+    }
+
+    // 找到所有要删除的节点（包括子孙节点）
+    const nodesToRemove: number[] = [];
+
+    // 添加当前节点
+    nodesToRemove.push(dataIndex);
+
+    // 添加所有子孙节点
+    for (let i = 0; i < this.treeListData.length; i++) {
+      const item = this.treeListData[i];
+      if (item.treeId.startsWith(treeId + '.')) {
+        nodesToRemove.push(i);
+      }
+    }
+
+    // 按索引降序排列，从后往前删除
+    nodesToRemove.sort((a, b) => b - a);
+
+    // 删除节点
+    for (const index of nodesToRemove) {
+      this.treeListData.splice(index, 1);
+    }
+
+    // 重建所有缓存（因为索引发生了变化）
+    this.rebuildAllCaches();
+
+    return true;
+  }
+
+  /**
+   * 更新节点数据
+   * @param {string} treeId - 节点的treeId
+   * @param {any} newData - 新的节点数据
+   * @returns {boolean} 是否更新成功
+   */
+  updateNode(treeId: string, newData: any): boolean {
+    const dataIndex = this.treeIdToDataIndexMap.get(treeId);
+    if (dataIndex === undefined) {
+      console.error(`节点 ${treeId} 不存在`);
+      return false;
+    }
+
+    // 确保新数据保持相同的treeId
+    newData.treeId = treeId;
+
+    // 更新节点数据
+    this.treeListData[dataIndex] = newData;
+
+    // 清除依赖缓存（不需要重建基础结构缓存，因为treeId没有变化）
+    this._clearStateDependentCaches();
+
+    return true;
+  }
+
+  /**
+   * 查找节点
+   * @param {string} treeId - 节点的treeId
+   * @returns {any|null} 节点数据，如果不存在返回null
+   */
+  findNode(treeId: string): any | null {
+    const dataIndex = this.treeIdToDataIndexMap.get(treeId);
+    if (dataIndex === undefined) {
+      return null;
+    }
+    return this.treeListData[dataIndex];
+  }
+
+  /**
+   * 移动节点到新位置
+   * @param {string} treeId - 要移动的节点treeId
+   * @param {number} newIndex - 新的位置索引
+   * @returns {boolean} 是否移动成功
+   */
+  moveNode(treeId: string, newIndex: number): boolean {
+    const currentIndex = this.treeIdToDataIndexMap.get(treeId);
+    if (currentIndex === undefined) {
+      console.error(`节点 ${treeId} 不存在`);
+      return false;
+    }
+
+    if (newIndex < 0 || newIndex >= this.treeListData.length) {
+      console.error('新位置索引超出范围');
+      return false;
+    }
+
+    if (currentIndex === newIndex) {
+      return true; // 位置没有变化
+    }
+
+    // 移动节点
+    const nodeData = this.treeListData.splice(currentIndex, 1)[0];
+    const actualNewIndex = newIndex > currentIndex ? newIndex - 1 : newIndex;
+    this.treeListData.splice(actualNewIndex, 0, nodeData);
+
+    // 重建所有缓存（因为索引发生了变化）
+    this.rebuildAllCaches();
+
+    return true;
+  }
+
+  /**
+   * 移动节点到另一个父节点下
+   * @param {string} treeId - 要移动的节点treeId
+   * @param {string} newParentTreeId - 新父节点的treeId，如果为空则移动到根级
+   * @param {number} insertIndex - 在新父节点下的插入位置，如果不指定则添加到末尾
+   * @returns {boolean} 是否移动成功
+   */
+  moveNodeToParent(treeId: string, newParentTreeId: string | null, insertIndex?: number): boolean {
+    const nodeData = this.findNode(treeId);
+    if (!nodeData) {
+      console.error(`节点 ${treeId} 不存在`);
+      return false;
+    }
+
+    // 检查是否会形成循环引用
+    if (newParentTreeId && (newParentTreeId === treeId || newParentTreeId.startsWith(treeId + '.'))) {
+      console.error('不能将节点移动到自己或自己的子节点下');
+      return false;
+    }
+
+    // 生成新的treeId
+    const oldTreeId = treeId;
+    const treeIdParts = treeId.split('.');
+    const nodeId = treeIdParts[treeIdParts.length - 1];
+    const newTreeId = newParentTreeId ? `${newParentTreeId}.${nodeId}` : nodeId;
+
+    // 更新当前节点和所有子孙节点的treeId
+    const nodesToUpdate = this.getDescendantNodes(oldTreeId);
+    nodesToUpdate.unshift({ data: nodeData, rowIndex: null }); // 添加当前节点
+
+    for (const item of nodesToUpdate) {
+      const currentTreeId = item.data.treeId;
+      const newCurrentTreeId = currentTreeId.replace(oldTreeId, newTreeId);
+      item.data.treeId = newCurrentTreeId;
+    }
+
+    // 重建所有缓存
+    this.rebuildAllCaches();
+
+    return true;
+  }
+
+  /**
+   * 批量添加节点
+   * @param {Array} nodesData - 节点数据数组
+   * @param {number} insertIndex - 插入位置，如果不指定则添加到末尾
+   * @returns {boolean} 是否添加成功
+   */
+  addNodes(nodesData: any[], insertIndex?: number): boolean {
+    if (!Array.isArray(nodesData) || nodesData.length === 0) {
+      return false;
+    }
+
+    // 验证所有节点数据
+    for (const nodeData of nodesData) {
+      if (!nodeData || !nodeData.treeId) {
+        console.error('所有节点数据必须包含treeId');
+        return false;
+      }
+      if (this.treeIdToDataIndexMap.has(nodeData.treeId)) {
+        console.error(`节点 ${nodeData.treeId} 已存在`);
+        return false;
+      }
+    }
+
+    const actualInsertIndex = insertIndex !== undefined ? insertIndex : this.treeListData.length;
+
+    // 批量插入节点 - 使用安全的数组插入避免调用栈溢出
+    this.treeListData = this._safeArrayInsert(this.treeListData, actualInsertIndex, nodesData);
+
+    // 重建所有缓存
+    this.rebuildAllCaches();
+
+    return true;
+  }
+
+  /**
+   * 在插入节点后更新基础缓存
+   * @param {string} treeId - 新插入节点的treeId
+   * @param {number} insertIndex - 插入位置
+   */
+  private _updateBasicCachesAfterInsert(treeId: string, insertIndex: number) {
+    // 更新treeId映射
+    this.treeIdToDataIndexMap.set(treeId, insertIndex);
+
+    // 更新所有在插入位置之后的节点的索引映射
+    for (const [id, index] of this.treeIdToDataIndexMap) {
+      if (index >= insertIndex && id !== treeId) {
+        this.treeIdToDataIndexMap.set(id, index + 1);
+      }
+    }
+
+    // 更新父子关系缓存
+    const parts = treeId.split('.');
+    if (parts.length > 1) {
+      const parentTreeId = parts.slice(0, -1).join('.');
+      if (!this.parentToChildrenMap.has(parentTreeId)) {
+        this.parentToChildrenMap.set(parentTreeId, []);
+      }
+      this.parentToChildrenMap.get(parentTreeId)!.push({
+        dataIndex: insertIndex,
+        treeId: treeId
+      });
+    }
   }
 }
 
