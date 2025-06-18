@@ -1021,11 +1021,5 @@ class TreeListIndexConvertor {
   }
 }
 
-// 便捷函数
-const createConvertor = (data: any) => new TreeListIndexConvertor(data);
-
-// 导出工具类和示例
-export { TreeListIndexConvertor, createConvertor };
-
 // 默认导出
 export default TreeListIndexConvertor;

@@ -19,6 +19,19 @@ export interface AddRowColumnOptions {
    * 添加行的回调函数
    */
   addRowCallback?: (row: number) => void;
+  /**
+   * 生成新记录的回调函数（用于树形数据等特殊场景）
+   * @param index - 插入位置的行索引
+   * @param record - 基础记录数据
+   * @returns 生成的新记录
+   */
+  generateRecordCallback?: (index: number, record: any) => any;
+  /**
+   * 添加记录到数据源的回调函数（用于 CachedDataSource 等特殊场景）
+   * @param newRecord - 要添加的记录
+   * @param index - 插入位置的行索引
+   */
+  addRecordToDataSourceCallback?: (newRecord: any, index: number) => void;
 }
 /**
  * 添加行和列的插件
@@ -403,7 +416,19 @@ export class AddRowColumnPlugin implements VTable.plugins.IVTablePlugin {
         this.pluginOptions.addRowCallback(addRowIndex);
       } else {
         const recordIndex = this.table.getRecordIndexByCell(0, addRowIndex);
-        this.table.addRecord({}, recordIndex);
+
+        // 检查是否配置了自定义记录生成和数据源添加回调
+        if (this.pluginOptions.generateRecordCallback && this.pluginOptions.addRecordToDataSourceCallback) {
+          // 先生成新记录
+          const newRecord = this.pluginOptions.generateRecordCallback(addRowIndex, {});
+          // 将新记录添加到原始数据源中
+          this.pluginOptions.addRecordToDataSourceCallback(newRecord, addRowIndex);
+          // 然后通知表格添加记录
+          this.table.addRecord(newRecord, recordIndex);
+        } else {
+          // 默认行为：添加空记录
+          this.table.addRecord({}, recordIndex);
+        }
       }
       this.delayHideAllForAddRow(0);
     });
