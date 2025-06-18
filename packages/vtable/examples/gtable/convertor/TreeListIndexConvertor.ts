@@ -489,14 +489,15 @@ class TreeListIndexConvertor {
    */
   getDebugInfo() {
     return {
+      treeListData: this.treeListData,
       totalItems: this.treeListData.length,
       visibleItems: this.getVisibleRowCount(),
       collapsedNodes: Array.from(this.nodeCollapseStateMap.keys()),
       cacheVersion: this.cacheVersion,
       cacheStats: {
-        descendantNodesCache: this.descendantNodesCache.size,
-        parentToChildrenMap: this.parentToChildrenMap.size,
-        nodeVisibilityCache: this.nodeVisibilityCache.size,
+        descendantNodesCache: this.descendantNodesCache,
+        parentToChildrenMap: this.parentToChildrenMap,
+        nodeVisibilityCache: this.nodeVisibilityCache,
         visibleDataIndexesCacheExists: this.visibleDataIndexesCache !== null
       }
     };
@@ -721,26 +722,29 @@ class TreeListIndexConvertor {
   /**
    * 删除节点（包括其所有子孙节点）
    * @param {string} treeId - 要删除的节点treeId
-   * @returns {boolean} 是否删除成功
+   * @returns {number[]} 删除的节点行号数组
    */
-  removeNode(treeId: string): boolean {
+  removeNode(treeId: string): any[] {
     const dataIndex = this.treeIdToDataIndexMap.get(treeId);
     if (dataIndex === undefined) {
       console.error(`节点 ${treeId} 不存在`);
-      return false;
+      return [];
     }
 
     // 找到所有要删除的节点（包括子孙节点）
     const nodesToRemove: number[] = [];
+    const rowsToRemove: number[] = [];
 
     // 添加当前节点
     nodesToRemove.push(dataIndex);
+    rowsToRemove.push(this.indexToRow(dataIndex));
 
     // 添加所有子孙节点
     for (let i = 0; i < this.treeListData.length; i++) {
       const item = this.treeListData[i];
       if (item.treeId.startsWith(treeId + '.')) {
         nodesToRemove.push(i);
+        rowsToRemove.push(this.indexToRow(i));
       }
     }
 
@@ -755,7 +759,7 @@ class TreeListIndexConvertor {
     // 重建所有缓存（因为索引发生了变化）
     this.rebuildAllCaches();
 
-    return true;
+    return rowsToRemove;
   }
 
   /**
@@ -918,6 +922,15 @@ class TreeListIndexConvertor {
     for (const [id, index] of this.treeIdToDataIndexMap) {
       if (index >= insertIndex && id !== treeId) {
         this.treeIdToDataIndexMap.set(id, index + 1);
+      }
+    }
+
+    // 更新parentToChildrenMap中的dataIndex
+    for (const [parentId, children] of this.parentToChildrenMap) {
+      for (const child of children) {
+        if (child.dataIndex >= insertIndex && child.treeId !== treeId) {
+          child.dataIndex = child.dataIndex + 1;
+        }
       }
     }
 

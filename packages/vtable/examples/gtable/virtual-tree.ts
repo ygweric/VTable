@@ -1,10 +1,11 @@
 import * as VTable from '../../src';
 import { InputEditor } from '@visactor/vtable-editors';
 import { TreeListIndexConvertor } from './convertor/TreeListIndexConvertor';
-import records_ from '../mock/table/flat-tree_3.json';
 import { AddRowColumnPlugin } from './plugin/add-row-column';
 import { ColumnSeriesPlugin } from './plugin/column-series';
 import { RowSeriesPlugin } from './plugin/row-series';
+// import records_ from '../mock/table/flat-tree_1.json';
+import records_ from '../mock/table/flat-tree_3.json';
 // import records_ from '../mock/table/flat-tree_100.json';
 // import records_ from '../mock/table/flat-tree_7x5_98k.json';
 // import records_ from '../mock/table/flat-tree_8x5_488k.json';
@@ -22,7 +23,6 @@ const convertor = new TreeListIndexConvertor(records);
 // @ts-ignore
 window.convertor = convertor;
 
-const addRowColumn = new AddRowColumnPlugin();
 // 创建 ColumnSeries 插件实例
 const columnSeries = new ColumnSeriesPlugin({
   columnCount: 5 // 设置列数量
@@ -70,14 +70,16 @@ export function createTable() {
       width: '200'
     },
     {
-      field: 'logRow',
+      field: 'treeId',
       cellType: 'button',
       text: ({ row, col, table, value, dataValue, percentile, cellHeaderPaths }) => {
-        switch (row) {
-          case 1:
-            return 'add Record 1.1.6';
-          case 2:
-            return 'remove record 1.1.6';
+        switch (value) {
+          case '1':
+            return `add child under ${value}`;
+          case '1.1':
+            return `remove ${value}`;
+          case '1.1.1':
+            return `remove ${value}`;
           default:
             return 'log row info';
         }
@@ -91,7 +93,15 @@ export function createTable() {
       }
     }
   ];
+
+  const addRowColumn = new AddRowColumnPlugin({
+    // addRowCallback: row => {
+    //   // todo
+    // }
+  });
+
   const option: VTable.ListTableConstructorOptions = {
+    showHeader: false,
     dragOrder: {
       dragHeaderMode: 'all'
     },
@@ -114,14 +124,31 @@ export function createTable() {
         toggleTreeNode(e);
         break;
       case 3:
-        switch (e.row) {
-          case 1:
-            convertor.addNode({ treeId: '1.1.6', id: 116 }, e.row + 1);
-            const newRow = convertor.indexToRow(e.row + 1);
-            tableInstance.addRecords([{ treeId: '1.1.6', id: 116 }], newRow);
+        const dataIndex = convertor.rowToIndex(e.row);
+        const record = records[dataIndex];
+        switch (record.treeId) {
+          case '1':
+            {
+              const newRecord = { id: 19, treeId: '1.9' };
+              convertor.addNode(newRecord, e.row + 1);
+              // const newRow = convertor.indexToRow(e.row + 1);
+              tableInstance.addRecords([newRecord], e.row + 1);
+            }
+
             break;
-          case 2:
-            logRow(e);
+          case '1.1':
+            {
+              const rowsToRemove = convertor.removeNode('1.1');
+              tableInstance.deleteRecords(rowsToRemove);
+            }
+
+            break;
+          case '1.1.1':
+            {
+              const rowsToRemove = convertor.removeNode('1.1.1');
+              tableInstance.deleteRecords(rowsToRemove);
+            }
+
             break;
           default:
             logRow(e);
@@ -132,15 +159,14 @@ export function createTable() {
 
 const cacheCachedDataSource = new VTable.data.CachedDataSource({
   get(index) {
-    const timeBegin = performance.now();
     const dataIndex = convertor.rowToIndex(index);
     if (dataIndex === null) {
       console.log(`get ${index} with null`);
       return null;
     }
-    const result = records[dataIndex];
-    console.log(`get ${index} with ${JSON.stringify(result)}`);
-    return result;
+    const record = records[dataIndex];
+    console.log(`get ${index} with ${JSON.stringify(record)}`); // -------------------------------------------------------------
+    return record;
   },
   added(index: number, count: number) {
     // console.log(`added ${index} ${count}`);
@@ -157,7 +183,7 @@ function toggleTreeNode(e) {
   console.log('toggleTreeNode', e);
 
   const { row: row_, col } = e;
-  const row = row_ - 1; // 减去表头
+  const row = row_; // 减去表头
   const flatTreeIndex = convertor.rowToIndex(row);
   const record = records[flatTreeIndex as number];
   const treeId = record.treeId;
@@ -182,7 +208,7 @@ function toggleTreeNode(e) {
     console.log(`recordsToAdd: ${recordsToAdd.length}`);
 
     convertor.setCollapsed(treeId, !isCollapsed);
-    tableInstance.addRecords(recordsToAdd, row + 1);
+    tableInstance.addRecords(recordsToAdd, row);
   }
   console.log('updateRecords', record, row_);
   // tableInstance.updateRecords([{ ...record, id: 123 }], [row_]);
