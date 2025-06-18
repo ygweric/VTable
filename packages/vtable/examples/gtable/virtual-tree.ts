@@ -1,7 +1,11 @@
 import * as VTable from '../../src';
-import { TreeListIndexConvertor } from './utils/TreeListIndexConvertor';
-// import records_ from '../mock/table/flat-tree_3.json';
-import records_ from '../mock/table/flat-tree_100.json';
+import { InputEditor } from '@visactor/vtable-editors';
+import { TreeListIndexConvertor } from './convertor/TreeListIndexConvertor';
+import records_ from '../mock/table/flat-tree_3.json';
+import { AddRowColumnPlugin } from './plugin/add-row-column';
+import { ColumnSeriesPlugin } from './plugin/column-series';
+import { RowSeriesPlugin } from './plugin/row-series';
+// import records_ from '../mock/table/flat-tree_100.json';
 // import records_ from '../mock/table/flat-tree_7x5_98k.json';
 // import records_ from '../mock/table/flat-tree_8x5_488k.json';
 // import records_ from '../mock/table/flat-tree_9x5_1015k.json';
@@ -9,11 +13,25 @@ import records_ from '../mock/table/flat-tree_100.json';
 
 const records = records_ as any[];
 
+const input_editor = new InputEditor();
+VTable.register.editor('input-editor', input_editor);
+
 const CONTAINER_ID = 'vTable';
 
 const convertor = new TreeListIndexConvertor(records);
 // @ts-ignore
 window.convertor = convertor;
+
+const addRowColumn = new AddRowColumnPlugin();
+// 创建 ColumnSeries 插件实例
+const columnSeries = new ColumnSeriesPlugin({
+  columnCount: 5 // 设置列数量
+});
+
+// 创建 RowSeries 插件实例
+const rowSeries = new RowSeriesPlugin({
+  rowCount: 100 // 设置行数量
+});
 
 let tableInstance: VTable.ListTable;
 export function createTable() {
@@ -42,11 +60,13 @@ export function createTable() {
     {
       field: 'treeId',
       title: 'treeId',
+      editor: 'input-editor',
       width: '200'
     },
     {
       field: 'id',
       title: 'id',
+      editor: 'input-editor',
       width: '200'
     },
     {
@@ -72,10 +92,16 @@ export function createTable() {
     }
   ];
   const option: VTable.ListTableConstructorOptions = {
+    dragOrder: {
+      dragHeaderMode: 'all'
+    },
     container: document.getElementById(CONTAINER_ID),
-    // records,
-    columns
-    // plugins: [columnSeries, rowSeries],
+    columns,
+    plugins: [
+      addRowColumn
+      // columnSeries,
+      // rowSeries
+    ]
   };
   tableInstance = new VTable.ListTable(option);
   tableInstance.dataSource = cacheCachedDataSource;
@@ -108,15 +134,12 @@ const cacheCachedDataSource = new VTable.data.CachedDataSource({
   get(index) {
     const timeBegin = performance.now();
     const dataIndex = convertor.rowToIndex(index);
-    // console.log(`dataIndex: ${dataIndex}`);
     if (dataIndex === null) {
-      // console.log(`get ${index} with null`);
+      console.log(`get ${index} with null`);
       return null;
     }
-    const timeEnd = performance.now();
-    // console.log(`get ${index} time: ${timeEnd - timeBegin}ms`);
     const result = records[dataIndex];
-    // console.log(`get ${index} with ${JSON.stringify(result)}`);
+    console.log(`get ${index} with ${JSON.stringify(result)}`);
     return result;
   },
   added(index: number, count: number) {
