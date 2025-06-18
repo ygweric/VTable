@@ -42,6 +42,10 @@ class TreeListIndexConvertor {
   /** 缓存版本号，用于跟踪缓存状态变化 */
   private cacheVersion: number;
 
+  // ========== 批量操作优化 ==========
+  /** 批量操作模式标记 */
+  private batchMode: boolean;
+
   // ========== 性能统计系统 ==========
   /** 方法调用统计: key=methodName, value=统计信息 */
   private readonly performanceStatsMap: Map<string, any>;
@@ -69,6 +73,9 @@ class TreeListIndexConvertor {
 
     // 初始化缓存版本控制
     this.cacheVersion = 0;
+
+    // 初始化批量操作模式
+    this.batchMode = false;
 
     // 初始化性能统计系统
     this.performanceStatsMap = new Map();
@@ -676,6 +683,40 @@ class TreeListIndexConvertor {
     return true;
   }
 
+  /**
+   * 开启批量操作模式（用于大量数据操作优化）
+   */
+  beginBatch() {
+    this.batchMode = true;
+  }
+
+  /**
+   * 结束批量操作模式并重建缓存
+   */
+  endBatch() {
+    this.batchMode = false;
+    this.rebuildAllCaches();
+  }
+
+  /**
+   * 在批量操作模式下执行函数
+   * @param {Function} batchOperations - 批量操作函数
+   * @returns 函数执行结果
+   */
+  withBatch(batchOperations: Function) {
+    const timeBegin = performance.now();
+    this.beginBatch();
+
+    try {
+      const result = batchOperations();
+      return result;
+    } finally {
+      this.endBatch();
+      const timeEnd = performance.now();
+      console.log(`批量操作完成，耗时: ${timeEnd - timeBegin}ms`);
+    }
+  }
+
   // ========== 树形数据增删查改操作 ==========
 
   /**
@@ -710,11 +751,19 @@ class TreeListIndexConvertor {
     // 插入节点
     this.treeListData.splice(actualInsertIndex, 0, nodeData);
 
-    // 更新基础缓存
-    this._updateBasicCachesAfterInsert(nodeData.treeId, actualInsertIndex);
+    // 在批量模式下跳过缓存更新，等待批量结束时统一重建
+    if (this.batchMode) {
+      return true;
+    }
 
-    // 清除状态相关缓存
-    this._clearStateDependentCaches();
+    // 对于大数据量，直接重建缓存比增量更新更高效
+    if (this.treeListData.length > 10000) {
+      this.rebuildAllCaches();
+    } else {
+      // 小数据量时使用增量更新
+      this._updateBasicCachesAfterInsert(nodeData.treeId, actualInsertIndex);
+      this._clearStateDependentCaches();
+    }
 
     return true;
   }
@@ -756,8 +805,11 @@ class TreeListIndexConvertor {
       this.treeListData.splice(index, 1);
     }
 
-    // 重建所有缓存（因为索引发生了变化）
-    this.rebuildAllCaches();
+    // 在批量模式下跳过缓存更新
+    if (!this.batchMode) {
+      // 重建所有缓存（因为索引发生了变化）
+      this.rebuildAllCaches();
+    }
 
     return rowsToRemove;
   }
@@ -781,8 +833,11 @@ class TreeListIndexConvertor {
     // 更新节点数据
     this.treeListData[dataIndex] = newData;
 
-    // 清除依赖缓存（不需要重建基础结构缓存，因为treeId没有变化）
-    this._clearStateDependentCaches();
+    // 在批量模式下跳过缓存更新
+    if (!this.batchMode) {
+      // 清除依赖缓存（不需要重建基础结构缓存，因为treeId没有变化）
+      this._clearStateDependentCaches();
+    }
 
     return true;
   }
@@ -827,8 +882,11 @@ class TreeListIndexConvertor {
     const actualNewIndex = newIndex > currentIndex ? newIndex - 1 : newIndex;
     this.treeListData.splice(actualNewIndex, 0, nodeData);
 
-    // 重建所有缓存（因为索引发生了变化）
-    this.rebuildAllCaches();
+    // 在批量模式下跳过缓存更新
+    if (!this.batchMode) {
+      // 重建所有缓存（因为索引发生了变化）
+      this.rebuildAllCaches();
+    }
 
     return true;
   }
@@ -869,8 +927,11 @@ class TreeListIndexConvertor {
       item.data.treeId = newCurrentTreeId;
     }
 
-    // 重建所有缓存
-    this.rebuildAllCaches();
+    // 在批量模式下跳过缓存更新
+    if (!this.batchMode) {
+      // 重建所有缓存
+      this.rebuildAllCaches();
+    }
 
     return true;
   }
@@ -885,6 +946,8 @@ class TreeListIndexConvertor {
     if (!Array.isArray(nodesData) || nodesData.length === 0) {
       return false;
     }
+
+    const timeBegin = performance.now();
 
     // 验证所有节点数据
     for (const nodeData of nodesData) {
@@ -903,14 +966,17 @@ class TreeListIndexConvertor {
     // 批量插入节点 - 使用安全的数组插入避免调用栈溢出
     this.treeListData = this._safeArrayInsert(this.treeListData, actualInsertIndex, nodesData);
 
-    // 重建所有缓存
+    // 批量操作总是重建所有缓存，这比增量更新更高效
     this.rebuildAllCaches();
+
+    const timeEnd = performance.now();
+    console.log(`addNodes (${nodesData.length} nodes) time: ${timeEnd - timeBegin}ms`);
 
     return true;
   }
 
   /**
-   * 在插入节点后更新基础缓存
+   * 在插入节点后更新基础缓存（仅用于小数据量的增量更新）
    * @param {string} treeId - 新插入节点的treeId
    * @param {number} insertIndex - 插入位置
    */
@@ -918,23 +984,29 @@ class TreeListIndexConvertor {
     // 更新treeId映射
     this.treeIdToDataIndexMap.set(treeId, insertIndex);
 
-    // 更新所有在插入位置之后的节点的索引映射
+    // 优化：收集需要更新的entries，避免在迭代中修改Map
+    const entriesToUpdate: Array<[string, number]> = [];
     for (const [id, index] of this.treeIdToDataIndexMap) {
       if (index >= insertIndex && id !== treeId) {
-        this.treeIdToDataIndexMap.set(id, index + 1);
+        entriesToUpdate.push([id, index + 1]);
       }
     }
 
-    // 更新parentToChildrenMap中的dataIndex
-    for (const [parentId, children] of this.parentToChildrenMap) {
+    // 批量更新treeId映射
+    for (const [id, newIndex] of entriesToUpdate) {
+      this.treeIdToDataIndexMap.set(id, newIndex);
+    }
+
+    // 优化：直接遍历并更新parentToChildrenMap中的dataIndex
+    for (const children of this.parentToChildrenMap.values()) {
       for (const child of children) {
         if (child.dataIndex >= insertIndex && child.treeId !== treeId) {
-          child.dataIndex = child.dataIndex + 1;
+          child.dataIndex++;
         }
       }
     }
 
-    // 更新父子关系缓存
+    // 添加新节点到父子关系缓存
     const parts = treeId.split('.');
     if (parts.length > 1) {
       const parentTreeId = parts.slice(0, -1).join('.');
