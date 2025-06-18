@@ -143,6 +143,14 @@ export interface DataSourceParam {
   deleted?: (index: number[]) => any;
   canChangeOrder?: (sourceIndex: number, targetIndex: number) => boolean;
   changeOrder?: (sourceIndex: number, targetIndex: number) => void;
+  changeFieldValue?: (
+    value: FieldData,
+    index: number | number[],
+    field: FieldDef,
+    col?: number,
+    row?: number,
+    table?: BaseTableAPI
+  ) => FieldData;
 }
 export interface ISortedMapItem {
   asc?: (number | number[])[];
@@ -760,6 +768,11 @@ export class DataSource extends EventTarget implements DataSourceAPI {
     }
     if (index >= 0) {
       const dataIndex = this.getIndexKey(index);
+
+      // 如果用户提供了自定义的 changeFieldValue 回调函数，则调用它
+      if ((this.dataSourceObj as DataSourceParam)?.changeFieldValue) {
+        return (this.dataSourceObj as DataSourceParam).changeFieldValue(value, dataIndex, field, col, row, table);
+      }
 
       this.cacheBeforeChangedRecord(dataIndex, table);
       // 如果field为undefined或'' 按照colIndex取数组值

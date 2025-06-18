@@ -130,9 +130,9 @@ export function createTable() {
           case '1':
             {
               const newRecord = { id: 19, treeId: '1.9' };
-              convertor.addNode(newRecord, e.row + 1);
-              // const newRow = convertor.indexToRow(e.row + 1);
-              tableInstance.addRecords([newRecord], e.row + 1);
+              if (convertor.addNode(newRecord, e.row + 1)) {
+                tableInstance.addRecords([newRecord], e.row + 1);
+              }
             }
 
             break;
@@ -175,6 +175,38 @@ const cacheCachedDataSource = new VTable.data.CachedDataSource({
   deleted(index: number[]) {
     // console.log(`deleted ${index}`);
     // this.length -= index.length;
+  },
+  changeFieldValue(value, index, field, col, row, table) {
+    // 获取原始数据在 records 数组中的索引
+    const dataIndex = convertor.rowToIndex(index as number);
+    if (dataIndex === null || dataIndex < 0 || dataIndex >= records.length) {
+      console.warn(`Invalid dataIndex: ${dataIndex} for table index: ${index}`);
+      return value;
+    }
+
+    // 直接修改原始数据数组中的记录
+    const record = records[dataIndex];
+    if (record) {
+      // 处理字段名
+      let fieldKey = field;
+      if (field === undefined || field === '') {
+        fieldKey = col! - (table?.leftRowSeriesNumberCount || 0);
+      }
+
+      // 类型转换 - 如果原值是数字且新值是数字字符串，则转换为数字
+      let formatValue = value;
+      const originalValue = record[fieldKey as string];
+      if (typeof originalValue === 'number' && typeof value === 'string' && /^\d+(\.\d+)?$/.test(value)) {
+        formatValue = parseFloat(value);
+      }
+
+      record[fieldKey as string] = formatValue;
+      console.log(`Changed field ${fieldKey} to ${formatValue} for record at dataIndex ${dataIndex}`);
+    } else {
+      console.warn(`Record not found at dataIndex: ${dataIndex}`);
+    }
+
+    return value;
   },
   length: records.length //all records count
 });
