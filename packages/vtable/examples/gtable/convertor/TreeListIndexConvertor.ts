@@ -1,16 +1,14 @@
-import { safeArrayInsert } from '../../../src/tools/util';
-
 /**
  * 索引树节点接口
  * 存储最基础的节点信息，不包含原始数据的其他属性
  */
 interface IndexTreeNode {
-  /** 节点的treeId */
-  treeId: string;
+  /** 节点的id */
+  id: string | number;
   /** 在原始数据数组中的索引 */
   dataIndex: number;
-  /** 父节点的treeId（避免循环引用） */
-  parentTreeId: string | null;
+  /** 父节点的id（避免循环引用） */
+  parentId: string | number | null;
   /** 子节点数组 */
   children: IndexTreeNode[];
   /** 是否折叠 */
@@ -32,8 +30,8 @@ class TreeListIndexConvertor {
   /** 索引树的虚拟根节点 */
   private readonly indexTreeRoot: IndexTreeNode;
 
-  /** treeId到索引节点的快速映射 */
-  private readonly treeIdToNodeMap: Map<string, IndexTreeNode>;
+  /** id到索引节点的快速映射 */
+  private readonly idToNodeMap: Map<string | number, IndexTreeNode>;
 
   // ========== 性能统计系统 ==========
   /** 方法调用统计 */
@@ -44,14 +42,14 @@ class TreeListIndexConvertor {
 
     // 初始化索引树
     this.indexTreeRoot = {
-      treeId: '',
+      id: '',
       dataIndex: -1,
-      parentTreeId: null,
+      parentId: null,
       children: [],
       isCollapsed: false,
       visibleIndexes: null
     };
-    this.treeIdToNodeMap = new Map();
+    this.idToNodeMap = new Map();
 
     // 初始化性能统计
     this.performanceStatsMap = new Map();
@@ -69,42 +67,37 @@ class TreeListIndexConvertor {
 
     // 清空现有结构
     this.indexTreeRoot.children = [];
-    this.treeIdToNodeMap.clear();
+    this.idToNodeMap.clear();
 
     // 第一步：创建所有索引节点
-    const allNodes: Map<string, IndexTreeNode> = new Map();
+    const allNodes: Map<string | number, IndexTreeNode> = new Map();
 
     for (let i = 0; i < this.treeListData.length; i++) {
       const item = this.treeListData[i];
       const node: IndexTreeNode = {
-        treeId: item.treeId,
+        id: item.id,
         dataIndex: i,
-        parentTreeId: null,
+        parentId: item.parentId,
         children: [],
         isCollapsed: false
       };
-      allNodes.set(item.treeId, node);
-      this.treeIdToNodeMap.set(item.treeId, node);
+      allNodes.set(item.id, node);
+      this.idToNodeMap.set(item.id, node);
     }
 
     // 第二步：建立父子关系
     for (const node of allNodes.values()) {
-      const parts = node.treeId.split('.');
-      if (parts.length === 1) {
+      if (node.parentId === null || node.parentId === undefined) {
         // 根级节点，挂载到虚拟根节点下
-        node.parentTreeId = '';
         this.indexTreeRoot.children.push(node);
       } else {
         // 子节点，找到其父节点
-        const parentTreeId = parts.slice(0, -1).join('.');
-        const parentNode = allNodes.get(parentTreeId);
+        const parentNode = allNodes.get(node.parentId);
         if (parentNode) {
-          node.parentTreeId = parentTreeId;
           parentNode.children.push(node);
         } else {
           // 如果找不到父节点，暂时挂载到根节点（数据可能有问题）
-          console.warn(`找不到父节点: ${parentTreeId} for ${node.treeId}`);
-          node.parentTreeId = '';
+          console.warn(`找不到父节点: ${node.parentId} for ${node.id}`);
           this.indexTreeRoot.children.push(node);
         }
       }
@@ -184,10 +177,10 @@ class TreeListIndexConvertor {
   /**
    * 设置节点的折叠状态
    */
-  setCollapsed(treeId: string, collapsed: boolean) {
-    const node = this.treeIdToNodeMap.get(treeId);
+  setCollapsed(id: string | number, collapsed: boolean) {
+    const node = this.idToNodeMap.get(id);
     if (!node) {
-      console.warn(`节点 ${treeId} 不存在`);
+      console.warn(`节点 ${id} 不存在`);
       return;
     }
 
@@ -202,29 +195,29 @@ class TreeListIndexConvertor {
   /**
    * 获取节点的折叠状态
    */
-  isCollapsed(treeId: string): boolean {
-    const node = this.treeIdToNodeMap.get(treeId);
+  isCollapsed(id: string | number): boolean {
+    const node = this.idToNodeMap.get(id);
     return node ? node.isCollapsed : false;
   }
 
   /**
    * 判断节点是否可见（考虑祖先节点的折叠状态）
    */
-  isVisible(treeId: string): boolean {
+  isVisible(id: string | number): boolean {
     return this._withStatistics('isVisible', () => {
-      const node = this.treeIdToNodeMap.get(treeId);
+      const node = this.idToNodeMap.get(id);
       if (!node) return false;
 
       // 检查所有祖先节点是否有折叠的
-      let currentTreeId = node.parentTreeId;
-      while (currentTreeId && currentTreeId !== '') {
-        const current = this.treeIdToNodeMap.get(currentTreeId);
+      let currentParentId = node.parentId;
+      while (currentParentId !== null && currentParentId !== undefined) {
+        const current = this.idToNodeMap.get(currentParentId);
         if (!current) break;
 
         if (current.isCollapsed) {
           return false;
         }
-        currentTreeId = current.parentTreeId;
+        currentParentId = current.parentId;
       }
 
       return true;
@@ -287,7 +280,7 @@ class TreeListIndexConvertor {
     }
 
     const item = this.treeListData[dataIndex];
-    if (!this.isVisible(item.treeId)) {
+    if (!this.isVisible(item.id)) {
       return null;
     }
 
@@ -314,9 +307,9 @@ class TreeListIndexConvertor {
   /**
    * 切换节点的折叠状态
    */
-  toggleCollapsed(treeId: string): boolean {
-    const isCurrentlyCollapsed = this.isCollapsed(treeId);
-    this.setCollapsed(treeId, !isCurrentlyCollapsed);
+  toggleCollapsed(id: string | number): boolean {
+    const isCurrentlyCollapsed = this.isCollapsed(id);
+    this.setCollapsed(id, !isCurrentlyCollapsed);
     return !isCurrentlyCollapsed;
   }
 
@@ -359,8 +352,8 @@ class TreeListIndexConvertor {
   /**
    * 获取某个树节点下面所有的子孙节点
    */
-  getDescendantNodes(treeId: string) {
-    const node = this.treeIdToNodeMap.get(treeId);
+  getDescendantNodes(id: string | number) {
+    const node = this.idToNodeMap.get(id);
     if (!node) return [];
 
     const descendants: { data: any; rowIndex: number | null }[] = [];
@@ -387,8 +380,8 @@ class TreeListIndexConvertor {
   /**
    * 获取节点的直接子节点（一级子节点）
    */
-  getDirectChildren(treeId: string) {
-    const node = this.treeIdToNodeMap.get(treeId);
+  getDirectChildren(id: string | number) {
+    const node = this.idToNodeMap.get(id);
     if (!node) return [];
 
     return node.children.map((child: IndexTreeNode) => ({
@@ -400,13 +393,13 @@ class TreeListIndexConvertor {
   /**
    * 获取节点的父节点
    */
-  getParentNode(treeId: string) {
-    const node = this.treeIdToNodeMap.get(treeId);
-    if (!node || !node.parentTreeId || node.parentTreeId === '') {
+  getParentNode(id: string | number) {
+    const node = this.idToNodeMap.get(id);
+    if (!node || node.parentId === null || node.parentId === undefined) {
       return null;
     }
 
-    const parentNode = this.treeIdToNodeMap.get(node.parentTreeId);
+    const parentNode = this.idToNodeMap.get(node.parentId);
     if (!parentNode) {
       return null;
     }
@@ -420,11 +413,11 @@ class TreeListIndexConvertor {
   /**
    * 批量获取多个节点的子孙节点
    */
-  getBatchDescendantNodes(treeIds: string[]) {
-    const result: Map<string, any[]> = new Map();
+  getBatchDescendantNodes(ids: (string | number)[]) {
+    const result: Map<string | number, any[]> = new Map();
 
-    for (const treeId of treeIds) {
-      result.set(treeId, this.getDescendantNodes(treeId));
+    for (const id of ids) {
+      result.set(id, this.getDescendantNodes(id));
     }
 
     return result;
@@ -446,8 +439,8 @@ class TreeListIndexConvertor {
   /**
    * 获取所有折叠的节点
    */
-  private _getCollapsedNodes(): string[] {
-    const collapsedNodes: string[] = [];
+  private _getCollapsedNodes(): (string | number)[] {
+    const collapsedNodes: (string | number)[] = [];
     this._collectCollapsedNodes(this.indexTreeRoot, collapsedNodes);
     return collapsedNodes;
   }
@@ -455,9 +448,9 @@ class TreeListIndexConvertor {
   /**
    * 递归收集折叠的节点
    */
-  private _collectCollapsedNodes(node: IndexTreeNode, result: string[]) {
+  private _collectCollapsedNodes(node: IndexTreeNode, result: (string | number)[]) {
     if (node.isCollapsed && node !== this.indexTreeRoot) {
-      result.push(node.treeId);
+      result.push(node.id);
     }
     for (const child of node.children) {
       this._collectCollapsedNodes(child, result);
@@ -500,7 +493,7 @@ class TreeListIndexConvertor {
    * 更新插入位置后所有节点的dataIndex
    */
   private _updateDataIndexesAfterInsert(insertIndex: number) {
-    for (const node of this.treeIdToNodeMap.values()) {
+    for (const node of this.idToNodeMap.values()) {
       if (node.dataIndex >= insertIndex) {
         node.dataIndex++;
       }
@@ -511,7 +504,7 @@ class TreeListIndexConvertor {
    * 更新批量插入位置后所有节点的dataIndex
    */
   private _updateDataIndexesAfterBatchInsert(insertIndex: number, insertCount: number) {
-    for (const node of this.treeIdToNodeMap.values()) {
+    for (const node of this.idToNodeMap.values()) {
       if (node.dataIndex >= insertIndex) {
         node.dataIndex += insertCount;
       }
@@ -522,28 +515,22 @@ class TreeListIndexConvertor {
    * 建立新节点的父子关系
    */
   private _establishParentChildRelation(newNode: IndexTreeNode) {
-    const parts = newNode.treeId.split('.');
-
-    if (parts.length === 1) {
+    if (newNode.parentId === null || newNode.parentId === undefined) {
       // 根级节点，挂载到虚拟根节点下
-      newNode.parentTreeId = '';
       this.indexTreeRoot.children.push(newNode);
       // 对根节点的子节点按dataIndex排序
       this.indexTreeRoot.children.sort((a, b) => a.dataIndex - b.dataIndex);
     } else {
       // 子节点，找到其父节点
-      const parentTreeId = parts.slice(0, -1).join('.');
-      const parentNode = this.treeIdToNodeMap.get(parentTreeId);
+      const parentNode = this.idToNodeMap.get(newNode.parentId);
 
       if (parentNode) {
-        newNode.parentTreeId = parentTreeId;
         parentNode.children.push(newNode);
         // 对父节点的子节点按dataIndex排序
         parentNode.children.sort((a, b) => a.dataIndex - b.dataIndex);
       } else {
         // 如果找不到父节点，暂时挂载到根节点
-        console.warn(`找不到父节点: ${parentTreeId} for ${newNode.treeId}`);
-        newNode.parentTreeId = '';
+        console.warn(`找不到父节点: ${newNode.parentId} for ${newNode.id}`);
         this.indexTreeRoot.children.push(newNode);
         this.indexTreeRoot.children.sort((a, b) => a.dataIndex - b.dataIndex);
       }
@@ -554,7 +541,7 @@ class TreeListIndexConvertor {
    * 从父节点的children中移除节点
    */
   private _removeNodeFromParent(node: IndexTreeNode) {
-    if (node.parentTreeId === '' || node.parentTreeId === null) {
+    if (node.parentId === null || node.parentId === undefined) {
       // 从根节点移除
       const index = this.indexTreeRoot.children.indexOf(node);
       if (index > -1) {
@@ -562,7 +549,7 @@ class TreeListIndexConvertor {
       }
     } else {
       // 从父节点移除
-      const parentNode = this.treeIdToNodeMap.get(node.parentTreeId);
+      const parentNode = this.idToNodeMap.get(node.parentId);
       if (parentNode) {
         const index = parentNode.children.indexOf(node);
         if (index > -1) {
@@ -579,7 +566,7 @@ class TreeListIndexConvertor {
     // 按dataIndex降序排列的删除位置
     const removedIndexes = removedNodes.map(node => node.dataIndex).sort((a, b) => b - a);
 
-    for (const node of this.treeIdToNodeMap.values()) {
+    for (const node of this.idToNodeMap.values()) {
       let adjustment = 0;
       for (const removedIndex of removedIndexes) {
         if (node.dataIndex > removedIndex) {
@@ -604,13 +591,13 @@ class TreeListIndexConvertor {
    * 添加新节点（增量更新）
    */
   addNode(nodeData: any, insertIndex?: number): boolean {
-    if (!nodeData || !nodeData.treeId) {
-      console.error('节点数据必须包含treeId');
+    if (!nodeData || (nodeData.id === undefined && nodeData.id !== 0)) {
+      console.error('节点数据必须包含id');
       return false;
     }
 
-    if (this.treeIdToNodeMap.has(nodeData.treeId)) {
-      console.error(`节点 ${nodeData.treeId} 已存在`);
+    if (this.idToNodeMap.has(nodeData.id)) {
+      console.error(`节点 ${nodeData.id} 已存在`);
       return false;
     }
 
@@ -624,15 +611,15 @@ class TreeListIndexConvertor {
 
     // 创建新的索引节点
     const newNode: IndexTreeNode = {
-      treeId: nodeData.treeId,
+      id: nodeData.id,
       dataIndex: actualInsertIndex,
-      parentTreeId: null,
+      parentId: nodeData.parentId,
       children: [],
       isCollapsed: false
     };
 
     // 添加到映射表
-    this.treeIdToNodeMap.set(nodeData.treeId, newNode);
+    this.idToNodeMap.set(nodeData.id, newNode);
 
     // 建立父子关系
     this._establishParentChildRelation(newNode);
@@ -646,10 +633,10 @@ class TreeListIndexConvertor {
   /**
    * 删除节点（包括其所有子孙节点）（增量更新）
    */
-  removeNode(treeId: string): number[] {
-    const node = this.treeIdToNodeMap.get(treeId);
+  removeNode(id: string | number): number[] {
+    const node = this.idToNodeMap.get(id);
     if (!node) {
-      console.error(`节点 ${treeId} 不存在`);
+      console.error(`节点 ${id} 不存在`);
       return [];
     }
 
@@ -676,7 +663,7 @@ class TreeListIndexConvertor {
     // 删除数据和索引映射
     for (const nodeToRemove of nodesToRemove) {
       this.treeListData.splice(nodeToRemove.dataIndex, 1);
-      this.treeIdToNodeMap.delete(nodeToRemove.treeId);
+      this.idToNodeMap.delete(nodeToRemove.id);
     }
 
     // 更新所有受影响节点的dataIndex
@@ -701,14 +688,14 @@ class TreeListIndexConvertor {
   /**
    * 更新节点数据
    */
-  updateNode(treeId: string, newData: any): boolean {
-    const node = this.treeIdToNodeMap.get(treeId);
+  updateNode(id: string | number, newData: any): boolean {
+    const node = this.idToNodeMap.get(id);
     if (!node) {
-      console.error(`节点 ${treeId} 不存在`);
+      console.error(`节点 ${id} 不存在`);
       return false;
     }
 
-    newData.treeId = treeId;
+    newData.id = id;
     this.treeListData[node.dataIndex] = newData;
 
     this._clearVisibleCache();
@@ -718,8 +705,8 @@ class TreeListIndexConvertor {
   /**
    * 查找节点
    */
-  findNode(treeId: string): any | null {
-    const node = this.treeIdToNodeMap.get(treeId);
+  findNode(id: string | number): any | null {
+    const node = this.idToNodeMap.get(id);
     if (!node) return null;
     return this.treeListData[node.dataIndex];
   }
@@ -736,12 +723,12 @@ class TreeListIndexConvertor {
 
     // 验证所有节点数据
     for (const nodeData of nodesData) {
-      if (!nodeData || !nodeData.treeId) {
-        console.error('所有节点数据必须包含treeId');
+      if (!nodeData || (nodeData.id === undefined && nodeData.id !== 0)) {
+        console.error('所有节点数据必须包含id');
         return false;
       }
-      if (this.treeIdToNodeMap.has(nodeData.treeId)) {
-        console.error(`节点 ${nodeData.treeId} 已存在`);
+      if (this.idToNodeMap.has(nodeData.id)) {
+        console.error(`节点 ${nodeData.id} 已存在`);
         return false;
       }
     }
@@ -758,14 +745,14 @@ class TreeListIndexConvertor {
     for (let i = 0; i < nodesData.length; i++) {
       const nodeData = nodesData[i];
       const newNode: IndexTreeNode = {
-        treeId: nodeData.treeId,
+        id: nodeData.id,
         dataIndex: actualInsertIndex + i,
-        parentTreeId: null,
+        parentId: nodeData.parentId,
         children: [],
         isCollapsed: false
       };
 
-      this.treeIdToNodeMap.set(nodeData.treeId, newNode);
+      this.idToNodeMap.set(nodeData.id, newNode);
       this._establishParentChildRelation(newNode);
     }
 
