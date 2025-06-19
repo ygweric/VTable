@@ -1,104 +1,145 @@
 import { safeArrayInsert } from '../../../src/tools/util';
 
 /**
- * 树形列表数据行号与索引转换工具
- * 用于处理扁平树形数据在展开/折叠状态下的行号与数组索引对应关系
+ * 索引树节点接口
+ * 存储最基础的节点信息，不包含原始数据的其他属性
+ */
+interface IndexTreeNode {
+  /** 节点的treeId */
+  treeId: string;
+  /** 在原始数据数组中的索引 */
+  dataIndex: number;
+  /** 父节点的treeId（避免循环引用） */
+  parentTreeId: string | null;
+  /** 子节点数组 */
+  children: IndexTreeNode[];
+  /** 是否折叠 */
+  isCollapsed: boolean;
+  /** 可见行索引缓存（仅在根节点中使用） */
+  visibleIndexes?: number[] | null;
+}
+
+/**
+ * 树形列表数据行号与索引转换工具（优化版）
+ * 使用带层级的索引树来管理所有缓存功能
  */
 class TreeListIndexConvertor {
   // ========== 原始数据 ==========
   /** 原始树形数据数组 */
-  treeListData: any;
+  treeListData: any[];
 
-  // ========== 折叠状态管理 ==========
-  /** 节点折叠状态映射表: key=treeId, value=true(已折叠) */
-  private readonly nodeCollapseStateMap: Map<string, boolean>;
+  // ========== 索引树结构 ==========
+  /** 索引树的虚拟根节点 */
+  private readonly indexTreeRoot: IndexTreeNode;
 
-  // ========== 基础结构缓存（数据结构不变时可复用）==========
-  /** 节点ID到数据索引的映射: key=treeId, value=dataIndex */
-  private readonly treeIdToDataIndexMap: Map<string, number>;
-
-  /** 父子关系缓存: key=parentTreeId, value=Array<{dataIndex, treeId}> */
-  private readonly parentToChildrenMap: Map<string, Array<{ dataIndex: number; treeId: string }>>;
-
-  // ========== 可见性相关缓存 ==========
-  /** 可见行索引缓存: 所有当前可见行的数据索引数组 */
-  private visibleDataIndexesCache: number[] | null;
-
-  /** 节点可见性状态缓存: key=treeId, value=isVisible */
-  private readonly nodeVisibilityCache: Map<string, boolean>;
-
-  // ========== 子孙节点缓存 ==========
-  /** 子孙节点缓存: key=treeId, value=Array<{dataIndex, data}> */
-  private readonly descendantNodesCache: Map<string, Array<{ dataIndex: number; data: any }>>;
-
-  // ========== 转换结果缓存 ==========
-  /** 行号到数据索引转换缓存: key=rowIndex, value=dataIndex|null */
-  private readonly rowToDataIndexCache: Map<number, number | null>;
-
-  /** 数据索引到行号转换缓存: key=dataIndex, value=rowIndex|null */
-  private readonly dataIndexToRowCache: Map<number, number | null>;
-
-  // ========== 缓存版本控制 ==========
-  /** 缓存版本号，用于跟踪缓存状态变化 */
-  private cacheVersion: number;
-
-  // ========== 批量操作优化 ==========
-  /** 批量操作模式标记 */
-  private batchMode: boolean;
+  /** treeId到索引节点的快速映射 */
+  private readonly treeIdToNodeMap: Map<string, IndexTreeNode>;
 
   // ========== 性能统计系统 ==========
-  /** 方法调用统计: key=methodName, value=统计信息 */
+  /** 方法调用统计 */
   private readonly performanceStatsMap: Map<string, any>;
 
   constructor(treeListData: any[]) {
     this.treeListData = treeListData;
 
-    // 初始化折叠状态管理
-    this.nodeCollapseStateMap = new Map();
+    // 初始化索引树
+    this.indexTreeRoot = {
+      treeId: '',
+      dataIndex: -1,
+      parentTreeId: null,
+      children: [],
+      isCollapsed: false,
+      visibleIndexes: null
+    };
+    this.treeIdToNodeMap = new Map();
 
-    // 初始化基础结构缓存
-    this.treeIdToDataIndexMap = new Map();
-    this.parentToChildrenMap = new Map();
-
-    // 初始化可见性相关缓存
-    this.visibleDataIndexesCache = null;
-    this.nodeVisibilityCache = new Map();
-
-    // 初始化子孙节点缓存
-    this.descendantNodesCache = new Map();
-
-    // 初始化转换结果缓存
-    this.rowToDataIndexCache = new Map();
-    this.dataIndexToRowCache = new Map();
-
-    // 初始化缓存版本控制
-    this.cacheVersion = 0;
-
-    // 初始化批量操作模式
-    this.batchMode = false;
-
-    // 初始化性能统计系统
+    // 初始化性能统计
     this.performanceStatsMap = new Map();
 
-    // 构建基础缓存
-    this._buildBasicCaches();
+    // 构建索引树
+    this._buildIndexTree();
+  }
+
+  /**
+   * 构建索引树结构
+   * 这是核心方法，构建了整个树形索引结构
+   */
+  private _buildIndexTree() {
+    const timeBegin = performance.now();
+
+    // 清空现有结构
+    this.indexTreeRoot.children = [];
+    this.treeIdToNodeMap.clear();
+
+    // 第一步：创建所有索引节点
+    const allNodes: Map<string, IndexTreeNode> = new Map();
+
+    for (let i = 0; i < this.treeListData.length; i++) {
+      const item = this.treeListData[i];
+      const node: IndexTreeNode = {
+        treeId: item.treeId,
+        dataIndex: i,
+        parentTreeId: null,
+        children: [],
+        isCollapsed: false
+      };
+      allNodes.set(item.treeId, node);
+      this.treeIdToNodeMap.set(item.treeId, node);
+    }
+
+    // 第二步：建立父子关系
+    for (const node of allNodes.values()) {
+      const parts = node.treeId.split('.');
+      if (parts.length === 1) {
+        // 根级节点，挂载到虚拟根节点下
+        node.parentTreeId = '';
+        this.indexTreeRoot.children.push(node);
+      } else {
+        // 子节点，找到其父节点
+        const parentTreeId = parts.slice(0, -1).join('.');
+        const parentNode = allNodes.get(parentTreeId);
+        if (parentNode) {
+          node.parentTreeId = parentTreeId;
+          parentNode.children.push(node);
+        } else {
+          // 如果找不到父节点，暂时挂载到根节点（数据可能有问题）
+          console.warn(`找不到父节点: ${parentTreeId} for ${node.treeId}`);
+          node.parentTreeId = '';
+          this.indexTreeRoot.children.push(node);
+        }
+      }
+    }
+
+    // 第三步：对每个节点的子节点按dataIndex排序，确保顺序一致
+    this._sortChildrenRecursively(this.indexTreeRoot);
+
+    const timeEnd = performance.now();
+    console.log(`_buildIndexTree time: ${timeEnd - timeBegin}ms`);
+  }
+
+  /**
+   * 递归对子节点排序
+   */
+  private _sortChildrenRecursively(node: IndexTreeNode) {
+    // 按dataIndex排序，保持与原始数据的顺序一致
+    node.children.sort((a, b) => a.dataIndex - b.dataIndex);
+
+    // 递归处理子节点
+    for (const child of node.children) {
+      this._sortChildrenRecursively(child);
+    }
   }
 
   /**
    * 通用统计函数
-   * @param {string} methodName - 方法名称
-   * @param {Function} fn - 要执行的函数
-   * @param {boolean} enableStatistics - 是否启用统计
-   * @returns 函数执行结果
    */
-  _withStatistics(methodName: string, fn: Function, enableStatistics = false) {
+  private _withStatistics(methodName: string, fn: Function, enableStatistics = false) {
     if (!enableStatistics) {
       return fn();
     }
 
     const startTime = performance.now();
 
-    // 获取或创建统计对象
     let stats = this.performanceStatsMap.get(methodName);
     if (!stats || !stats.active) {
       stats = {
@@ -110,20 +151,16 @@ class TreeListIndexConvertor {
       this.performanceStatsMap.set(methodName, stats);
     }
 
-    // 执行函数
     const result = fn();
 
-    // 更新统计
     const endTime = performance.now();
     stats.callCount++;
     stats.totalTime += endTime - startTime;
 
-    // 清除之前的定时器
     if (stats.timer) {
       clearTimeout(stats.timer);
     }
 
-    // 设置新的定时器，2秒后输出统计结果
     stats.timer = setTimeout(() => {
       console.log(
         `${methodName} 统计结果: 调用次数=${stats.callCount}, 总耗时=${stats.totalTime.toFixed(2)}ms, 平均耗时=${(
@@ -138,335 +175,146 @@ class TreeListIndexConvertor {
   }
 
   /**
-   * 安全的数组插入方法，避免大数组导致的调用栈溢出
-   * @param {Array} targetArray - 目标数组
-   * @param {number} insertIndex - 插入位置
-   * @param {Array} itemsToInsert - 要插入的元素数组
-   * @param {number} batchSize - 批处理大小，默认10000
-   * @returns {Array} 修改后的数组
+   * 清除可见行缓存
    */
-  _safeArrayInsert(targetArray: any[], insertIndex: number, itemsToInsert: any[], batchSize = 10000): any[] {
-    if (itemsToInsert.length === 0) {
-      return targetArray;
-    }
-
-    // 如果要插入的元素数量较小，直接使用splice
-    if (itemsToInsert.length <= batchSize) {
-      targetArray.splice(insertIndex, 0, ...itemsToInsert);
-      return targetArray;
-    }
-
-    // 对于大数组，使用数组切片和合并的方式
-    const beforePart = targetArray.slice(0, insertIndex);
-    const afterPart = targetArray.slice(insertIndex);
-    return beforePart.concat(itemsToInsert, afterPart);
-  }
-
-  /**
-   * 构建基础缓存（节点索引映射和父子关系）
-   * 这些缓存在数据结构不变的情况下可以复用
-   */
-  _buildBasicCaches() {
-    if (this.treeIdToDataIndexMap.size > 0) return;
-
-    this.treeIdToDataIndexMap.clear();
-    this.parentToChildrenMap.clear();
-    const timeBegin = performance.now();
-
-    // 构建 treeId 到 dataIndex 的映射
-    for (let i = 0; i < this.treeListData.length; i++) {
-      const item = this.treeListData[i];
-      this.treeIdToDataIndexMap.set(item.treeId, i);
-
-      // 构建父子关系缓存
-      const parts = item.treeId.split('.');
-      if (parts.length > 1) {
-        const parentTreeId = parts.slice(0, -1).join('.');
-        if (!this.parentToChildrenMap.has(parentTreeId)) {
-          this.parentToChildrenMap.set(parentTreeId, []);
-        }
-        this.parentToChildrenMap.get(parentTreeId)!.push({
-          dataIndex: i,
-          treeId: item.treeId
-        });
-      }
-    }
-    const timeEnd = performance.now();
-    console.log(`_buildBasicCaches time: ${timeEnd - timeBegin}ms`);
-  }
-
-  /**
-   * 清除所有依赖于折叠状态的缓存
-   */
-  _clearStateDependentCaches() {
-    this.visibleDataIndexesCache = null;
-    this.descendantNodesCache.clear();
-    this.nodeVisibilityCache.clear();
-    this.cacheVersion++;
-  }
-
-  /**
-   * 针对特定节点清除相关缓存
-   * @param {string} treeId - 受影响的节点treeId
-   */
-  _clearCachesForNode(treeId: string) {
-    // 不再直接清除 visibleDataIndexesCache，改为局部更新
-    // this.visibleDataIndexesCache = null;
-
-    // 清除该节点的子孙节点缓存 // 这里不需要clear
-    // this.descendantNodesCache.delete(treeId);
-
-    // 清除受影响节点及其所有子孙节点的可见性缓存
-    for (const [cachedTreeId] of this.nodeVisibilityCache) {
-      if (cachedTreeId === treeId || cachedTreeId.startsWith(treeId + '.')) {
-        this.nodeVisibilityCache.delete(cachedTreeId);
-      }
-    }
-
-    // 清除方法结果缓存
-    this.rowToDataIndexCache.clear();
-    this.dataIndexToRowCache.clear();
-
-    this.cacheVersion++;
-  }
-
-  /**
-   * 局部更新可见行缓存 - 折叠节点时移除相关行
-   * @param {string} treeId - 被折叠的节点treeId
-   */
-  _updateVisibleRowCacheOnCollapse(treeId: string) {
-    if (!this.visibleDataIndexesCache) {
-      return; // 如果缓存不存在，不需要更新
-    }
-
-    // 获取要移除的节点索引集合
-    const nodesToRemove = new Set<number>();
-
-    // 添加所有子孙节点的索引
-    for (let i = 0; i < this.treeListData.length; i++) {
-      const item = this.treeListData[i];
-      if (item.treeId.startsWith(treeId + '.')) {
-        nodesToRemove.add(i);
-      }
-    }
-
-    // 从visibleDataIndexesCache中移除这些索引
-    this.visibleDataIndexesCache = this.visibleDataIndexesCache.filter(index => !nodesToRemove.has(index));
-  }
-
-  /**
-   * 局部更新可见行缓存 - 展开节点时添加相关行
-   * @param {string} treeId - 被展开的节点treeId
-   */
-  _updateVisibleRowCacheOnExpand(treeId: string) {
-    if (!this.visibleDataIndexesCache) {
-      return; // 如果缓存不存在，不需要更新
-    }
-
-    // 找到要插入的位置（父节点在visibleDataIndexesCache中的位置）
-    const parentDataIndex = this.treeIdToDataIndexMap.get(treeId);
-    if (parentDataIndex === undefined) return;
-
-    const parentPositionInVisible = this.visibleDataIndexesCache.indexOf(parentDataIndex);
-    if (parentPositionInVisible === -1) return;
-
-    // 获取直接子节点
-    const directChildren = this.parentToChildrenMap.get(treeId);
-    if (!directChildren) return;
-
-    // 找到所有应该可见的子孙节点
-    const nodesToAdd: number[] = [];
-    const addVisibleDescendants = (currentTreeId: string) => {
-      const children = this.parentToChildrenMap.get(currentTreeId);
-      if (!children) return;
-
-      for (const child of children) {
-        nodesToAdd.push(child.dataIndex);
-
-        // 如果子节点没有被折叠，继续添加其子孙节点
-        if (!this.nodeCollapseStateMap.has(child.treeId)) {
-          addVisibleDescendants(child.treeId);
-        }
-      }
-    };
-
-    addVisibleDescendants(treeId);
-
-    // 按照数据索引排序，确保插入顺序正确
-    nodesToAdd.sort((a, b) => a - b);
-
-    // 优化：使用安全的数组插入方法，避免调用栈溢出
-    if (nodesToAdd.length === 0) return;
-
-    const insertPosition = parentPositionInVisible + 1;
-    this.visibleDataIndexesCache = safeArrayInsert(this.visibleDataIndexesCache, insertPosition, nodesToAdd);
+  private _clearVisibleCache() {
+    this.indexTreeRoot.visibleIndexes = null;
   }
 
   /**
    * 设置节点的折叠状态
-   * @param {string} treeId - 节点的treeId
-   * @param {boolean} collapsed - 是否折叠
    */
   setCollapsed(treeId: string, collapsed: boolean) {
-    const wasCollapsed = this.nodeCollapseStateMap.has(treeId);
-
-    // 先清除受影响节点的相关缓存（除了visibleDataIndexesCache）
-    this._clearCachesForNode(treeId);
-
-    if (collapsed) {
-      this.nodeCollapseStateMap.set(treeId, true);
-      // 如果之前是展开状态，现在折叠，需要移除子孙节点
-      if (!wasCollapsed) {
-        this._updateVisibleRowCacheOnCollapse(treeId);
-      }
-    } else {
-      this.nodeCollapseStateMap.delete(treeId);
-      // 如果之前是折叠状态，现在展开，需要添加子孙节点
-      if (wasCollapsed) {
-        this._updateVisibleRowCacheOnExpand(treeId);
-      }
+    const node = this.treeIdToNodeMap.get(treeId);
+    if (!node) {
+      console.warn(`节点 ${treeId} 不存在`);
+      return;
     }
+
+    if (node.isCollapsed === collapsed) {
+      return; // 状态没有变化
+    }
+
+    node.isCollapsed = collapsed;
+    this._clearVisibleCache();
   }
 
   /**
    * 获取节点的折叠状态
-   * @param {string} treeId - 节点的treeId
-   * @returns {boolean} 是否折叠
    */
-  isCollapsed(treeId: string) {
-    return this.nodeCollapseStateMap.has(treeId);
+  isCollapsed(treeId: string): boolean {
+    const node = this.treeIdToNodeMap.get(treeId);
+    return node ? node.isCollapsed : false;
   }
 
   /**
-   * 判断节点是否可见（考虑父节点的折叠状态）
-   * @param {string} treeId - 节点的treeId
-   * @returns {boolean} 是否可见
+   * 判断节点是否可见（考虑祖先节点的折叠状态）
    */
-  isVisible(treeId: string) {
+  isVisible(treeId: string): boolean {
     return this._withStatistics('isVisible', () => {
-      // 检查缓存
-      if (this.nodeVisibilityCache.has(treeId)) {
-        return this.nodeVisibilityCache.get(treeId);
-      }
+      const node = this.treeIdToNodeMap.get(treeId);
+      if (!node) return false;
 
-      const parts = treeId.split('.');
-      // 检查所有父节点是否折叠
-      for (let i = 1; i < parts.length; i++) {
-        const parentTreeId = parts.slice(0, i).join('.');
-        if (this.nodeCollapseStateMap.has(parentTreeId)) {
-          this.nodeVisibilityCache.set(treeId, false);
+      // 检查所有祖先节点是否有折叠的
+      let currentTreeId = node.parentTreeId;
+      while (currentTreeId && currentTreeId !== '') {
+        const current = this.treeIdToNodeMap.get(currentTreeId);
+        if (!current) break;
+
+        if (current.isCollapsed) {
           return false;
         }
+        currentTreeId = current.parentTreeId;
       }
 
-      this.nodeVisibilityCache.set(treeId, true);
       return true;
     });
   }
 
   /**
    * 构建可见行的缓存映射
-   * @returns {Array} 可见行的索引数组
    */
-  buildVisibleRowCache() {
+  buildVisibleRowCache(): number[] {
     const timeBegin = performance.now();
-    if (this.visibleDataIndexesCache !== null) {
-      return this.visibleDataIndexesCache;
+
+    if (this.indexTreeRoot.visibleIndexes !== null && this.indexTreeRoot.visibleIndexes !== undefined) {
+      return this.indexTreeRoot.visibleIndexes;
     }
 
     const visibleIndexes: number[] = [];
-    for (let i = 0; i < this.treeListData.length; i++) {
-      const item = this.treeListData[i];
-      if (this.isVisible(item.treeId)) {
-        visibleIndexes.push(i);
-      }
-    }
+    this._collectVisibleNodes(this.indexTreeRoot, visibleIndexes);
+
+    this.indexTreeRoot.visibleIndexes = visibleIndexes;
+
     const timeEnd = performance.now();
     console.log(`buildVisibleRowCache time: ${timeEnd - timeBegin}ms`);
-    this.visibleDataIndexesCache = visibleIndexes;
+
     return visibleIndexes;
   }
 
   /**
-   * 将table行号转换为数组索引
-   * @param {number} rowIndex - table行号（从0开始）
-   * @returns {number|null} 对应的数组索引，如果不存在返回null
+   * 递归收集可见的节点索引
    */
-  rowToIndex(rowIndex: number) {
-    return this._withStatistics('rowToIndex', () => {
-      // 检查缓存
-      if (this.rowToDataIndexCache.has(rowIndex)) {
-        return this.rowToDataIndexCache.get(rowIndex)!;
-      }
+  private _collectVisibleNodes(node: IndexTreeNode, result: number[]) {
+    for (const child of node.children) {
+      // 添加当前子节点
+      result.push(child.dataIndex);
 
-      const visibleIndexes = this.buildVisibleRowCache();
-      let result: number | null = null;
-      if (rowIndex >= 0 && rowIndex < visibleIndexes.length) {
-        result = visibleIndexes[rowIndex];
+      // 如果子节点没有折叠，继续收集其子孙节点
+      if (!child.isCollapsed) {
+        this._collectVisibleNodes(child, result);
       }
+    }
+  }
 
-      // 缓存结果
-      this.rowToDataIndexCache.set(rowIndex, result);
-      return result;
-    });
+  /**
+   * 将table行号转换为数组索引
+   */
+  rowToIndex(rowIndex: number): number | null {
+    const visibleIndexes = this.buildVisibleRowCache();
+    if (rowIndex >= 0 && rowIndex < visibleIndexes.length) {
+      return visibleIndexes[rowIndex];
+    }
+    return null;
   }
 
   /**
    * 将数组索引转换为table行号
-   * @param {number} dataIndex - 数组索引
-   * @returns {number|null} 对应的table行号，如果节点不可见返回null
    */
-  indexToRow(dataIndex: number) {
-    return this._withStatistics('indexToRow', () => {
-      // 检查缓存
-      if (this.dataIndexToRowCache.has(dataIndex)) {
-        return this.dataIndexToRowCache.get(dataIndex)!;
-      }
+  indexToRow(dataIndex: number): number | null {
+    if (dataIndex < 0 || dataIndex >= this.treeListData.length) {
+      return null;
+    }
 
-      if (dataIndex < 0 || dataIndex >= this.treeListData.length) {
-        this.dataIndexToRowCache.set(dataIndex, null);
-        return null;
-      }
+    const item = this.treeListData[dataIndex];
+    if (!this.isVisible(item.treeId)) {
+      return null;
+    }
 
-      const item = this.treeListData[dataIndex];
-      if (!this.isVisible(item.treeId)) {
-        this.dataIndexToRowCache.set(dataIndex, null);
-        return null;
-      }
-
-      const visibleIndexes = this.buildVisibleRowCache();
-      const result = visibleIndexes.indexOf(dataIndex);
-      const finalResult = result === -1 ? null : result;
-
-      // 缓存结果
-      this.dataIndexToRowCache.set(dataIndex, finalResult);
-      return finalResult;
-    });
+    const visibleIndexes = this.buildVisibleRowCache();
+    const result = visibleIndexes.indexOf(dataIndex);
+    return result === -1 ? null : result;
   }
 
   /**
    * 获取当前可见行的总数
-   * @returns {number} 可见行数
    */
-  getVisibleRowCount() {
+  getVisibleRowCount(): number {
     return this.buildVisibleRowCache().length;
   }
 
   /**
    * 获取所有可见行的数据
-   * @returns {Array} 可见行的数据数组
    */
-  getVisibleData() {
+  getVisibleData(): any[] {
     const visibleIndexes = this.buildVisibleRowCache();
     return visibleIndexes.map((index: number) => this.treeListData[index]);
   }
 
   /**
    * 切换节点的折叠状态
-   * @param {string} treeId - 节点的treeId
-   * @returns {boolean} 切换后的状态（true=折叠, false=展开）
    */
-  toggleCollapsed(treeId: string) {
+  toggleCollapsed(treeId: string): boolean {
     const isCurrentlyCollapsed = this.isCollapsed(treeId);
     this.setCollapsed(treeId, !isCurrentlyCollapsed);
     return !isCurrentlyCollapsed;
@@ -476,38 +324,18 @@ class TreeListIndexConvertor {
    * 清除所有折叠状态（全部展开）
    */
   expandAll() {
-    this.nodeCollapseStateMap.clear();
-
-    // 如果有可见行缓存，可以更高效地重建
-    if (this.visibleDataIndexesCache) {
-      // 重建完整的可见行缓存（所有节点都可见）
-      this.visibleDataIndexesCache = [];
-      for (let i = 0; i < this.treeListData.length; i++) {
-        this.visibleDataIndexesCache.push(i);
-      }
-    }
-
-    this._clearStateDependentCaches();
+    this._setCollapsedRecursively(this.indexTreeRoot, false);
+    this._clearVisibleCache();
   }
 
   /**
-   * 获取调试信息
-   * @returns {object} 包含当前状态的调试信息
+   * 递归设置折叠状态
    */
-  getDebugInfo() {
-    return {
-      treeListData: this.treeListData,
-      totalItems: this.treeListData.length,
-      visibleItems: this.getVisibleRowCount(),
-      collapsedNodes: Array.from(this.nodeCollapseStateMap.keys()),
-      cacheVersion: this.cacheVersion,
-      cacheStats: {
-        descendantNodesCache: this.descendantNodesCache,
-        parentToChildrenMap: this.parentToChildrenMap,
-        nodeVisibilityCache: this.nodeVisibilityCache,
-        visibleDataIndexesCacheExists: this.visibleDataIndexesCache !== null
-      }
-    };
+  private _setCollapsedRecursively(node: IndexTreeNode, collapsed: boolean) {
+    node.isCollapsed = collapsed;
+    for (const child of node.children) {
+      this._setCollapsedRecursively(child, collapsed);
+    }
   }
 
   /**
@@ -529,77 +357,68 @@ class TreeListIndexConvertor {
   }
 
   /**
-   * 获取某个树节点下面所有的子孙节点（优化版本，使用缓存）
-   * @param {string} treeId - 父节点的treeId
-   * @returns {Array} 返回子孙节点数组，每个元素包含节点内容和在当前树形状态下的行号
-   *                  格式: [{data: nodeData, rowIndex: number|null}, ...]
+   * 获取某个树节点下面所有的子孙节点
    */
   getDescendantNodes(treeId: string) {
-    // 检查缓存
-    if (this.descendantNodesCache.has(treeId)) {
-      const cachedDescendants = this.descendantNodesCache.get(treeId);
-      if (cachedDescendants) {
-        // 返回带有当前行号的结果
-        return cachedDescendants.map((item: any) => ({
-          data: item.data,
-          rowIndex: this.indexToRow(item.dataIndex)
-        }));
-      }
-    }
+    const node = this.treeIdToNodeMap.get(treeId);
+    if (!node) return [];
 
     const descendants: { data: any; rowIndex: number | null }[] = [];
-
-    // 使用优化的查找策略
-    this._withStatistics('_findDescendantsRecursive', () => {
-      this._findDescendantsRecursive(treeId, descendants);
-    });
-
-    // 缓存结果（不包含rowIndex，因为rowIndex会随折叠状态变化）
-    const cacheData = descendants
-      .map(item => {
-        const dataIndex = this.treeIdToDataIndexMap.get(item.data.treeId);
-        if (dataIndex !== undefined) {
-          return {
-            dataIndex,
-            data: item.data
-          };
-        }
-        return null;
-      })
-      .filter((item): item is { dataIndex: number; data: any } => item !== null);
-
-    this.descendantNodesCache.set(treeId, cacheData);
+    this._collectDescendantNodes(node, descendants);
 
     return descendants;
   }
 
   /**
-   * 递归查找子孙节点（使用父子关系缓存优化）
-   * @param {string} parentTreeId - 父节点ID
-   * @param {Array} result - 结果数组
+   * 递归收集子孙节点
    */
-  _findDescendantsRecursive(parentTreeId: string, result: any[]) {
-    const children = this.parentToChildrenMap.get(parentTreeId);
-    if (!children) return;
-
-    for (const child of children) {
-      const childData = this.treeListData[child.dataIndex];
-      const rowIndex = this.indexToRow(child.dataIndex);
-
+  private _collectDescendantNodes(node: IndexTreeNode, result: any[]) {
+    for (const child of node.children) {
       result.push({
-        data: childData,
-        rowIndex: rowIndex
+        data: this.treeListData[child.dataIndex],
+        rowIndex: this.indexToRow(child.dataIndex)
       });
 
-      // 递归查找子孙节点
-      this._findDescendantsRecursive(child.treeId, result);
+      // 递归收集子孙节点
+      this._collectDescendantNodes(child, result);
     }
   }
 
   /**
-   * 批量获取多个节点的子孙节点（优化版本）
-   * @param {Array<string>} treeIds - 多个父节点的treeId数组
-   * @returns {Map} key: treeId, value: 子孙节点数组
+   * 获取节点的直接子节点（一级子节点）
+   */
+  getDirectChildren(treeId: string) {
+    const node = this.treeIdToNodeMap.get(treeId);
+    if (!node) return [];
+
+    return node.children.map((child: IndexTreeNode) => ({
+      data: this.treeListData[child.dataIndex],
+      rowIndex: this.indexToRow(child.dataIndex)
+    }));
+  }
+
+  /**
+   * 获取节点的父节点
+   */
+  getParentNode(treeId: string) {
+    const node = this.treeIdToNodeMap.get(treeId);
+    if (!node || !node.parentTreeId || node.parentTreeId === '') {
+      return null;
+    }
+
+    const parentNode = this.treeIdToNodeMap.get(node.parentTreeId);
+    if (!parentNode) {
+      return null;
+    }
+
+    return {
+      data: this.treeListData[parentNode.dataIndex],
+      rowIndex: this.indexToRow(parentNode.dataIndex)
+    };
+  }
+
+  /**
+   * 批量获取多个节点的子孙节点
    */
   getBatchDescendantNodes(treeIds: string[]) {
     const result: Map<string, any[]> = new Map();
@@ -612,116 +431,169 @@ class TreeListIndexConvertor {
   }
 
   /**
-   * 获取节点的直接子节点（一级子节点）
-   * @param {string} treeId - 父节点的treeId
-   * @returns {Array} 直接子节点数组
+   * 获取调试信息
    */
-  getDirectChildren(treeId: string) {
-    const children = this.parentToChildrenMap.get(treeId);
-    if (!children) return [];
-
-    return children.map((child: any) => ({
-      data: this.treeListData[child.dataIndex],
-      rowIndex: this.indexToRow(child.dataIndex)
-    }));
+  getDebugInfo() {
+    return {
+      treeListData: this.treeListData,
+      totalItems: this.treeListData.length,
+      visibleItems: this.getVisibleRowCount(),
+      collapsedNodes: this._getCollapsedNodes(),
+      indexTreeStats: this._getIndexTreeStats()
+    };
   }
 
   /**
-   * 清除所有缓存并重新构建基础缓存
+   * 获取所有折叠的节点
+   */
+  private _getCollapsedNodes(): string[] {
+    const collapsedNodes: string[] = [];
+    this._collectCollapsedNodes(this.indexTreeRoot, collapsedNodes);
+    return collapsedNodes;
+  }
+
+  /**
+   * 递归收集折叠的节点
+   */
+  private _collectCollapsedNodes(node: IndexTreeNode, result: string[]) {
+    if (node.isCollapsed && node !== this.indexTreeRoot) {
+      result.push(node.treeId);
+    }
+    for (const child of node.children) {
+      this._collectCollapsedNodes(child, result);
+    }
+  }
+
+  /**
+   * 获取索引树统计信息
+   */
+  private _getIndexTreeStats() {
+    let totalNodes = 0;
+    let maxDepth = 0;
+
+    const traverse = (node: IndexTreeNode, depth: number) => {
+      totalNodes++;
+      maxDepth = Math.max(maxDepth, depth);
+      for (const child of node.children) {
+        traverse(child, depth + 1);
+      }
+    };
+
+    traverse(this.indexTreeRoot, 0);
+
+    return {
+      totalNodes: totalNodes - 1, // 减去虚拟根节点
+      maxDepth: maxDepth - 1, // 减去虚拟根节点层级
+      rootChildrenCount: this.indexTreeRoot.children.length
+    };
+  }
+
+  /**
+   * 重新构建索引树
    */
   rebuildAllCaches() {
-    // 清除所有缓存
-    this.visibleDataIndexesCache = null;
-    this.descendantNodesCache.clear();
-    this.parentToChildrenMap.clear();
-    this.nodeVisibilityCache.clear();
-    this.treeIdToDataIndexMap.clear();
-    this.cacheVersion++;
-
-    // 重新构建基础缓存
-    this._buildBasicCaches();
+    this.indexTreeRoot.visibleIndexes = null;
+    this._buildIndexTree();
   }
 
   /**
-   * 验证visibleDataIndexesCache的一致性（仅用于测试和调试）
-   * @returns {boolean} 缓存是否一致
+   * 更新插入位置后所有节点的dataIndex
    */
-  validateVisibleRowCache() {
-    if (!this.visibleDataIndexesCache) {
-      return true; // 如果没有缓存，认为是一致的
-    }
-
-    // 重新计算预期的可见行
-    const expectedVisible: number[] = [];
-    for (let i = 0; i < this.treeListData.length; i++) {
-      const item = this.treeListData[i];
-      if (this.isVisible(item.treeId)) {
-        expectedVisible.push(i);
+  private _updateDataIndexesAfterInsert(insertIndex: number) {
+    for (const node of this.treeIdToNodeMap.values()) {
+      if (node.dataIndex >= insertIndex) {
+        node.dataIndex++;
       }
     }
+  }
 
-    // 比较当前缓存与预期结果
-    if (this.visibleDataIndexesCache.length !== expectedVisible.length) {
-      console.error('visibleDataIndexesCache长度不匹配:', {
-        cached: this.visibleDataIndexesCache.length,
-        expected: expectedVisible.length
-      });
-      return false;
-    }
-
-    for (let i = 0; i < this.visibleDataIndexesCache.length; i++) {
-      if (this.visibleDataIndexesCache[i] !== expectedVisible[i]) {
-        console.error('visibleDataIndexesCache内容不匹配:', {
-          index: i,
-          cached: this.visibleDataIndexesCache[i],
-          expected: expectedVisible[i]
-        });
-        return false;
+  /**
+   * 更新批量插入位置后所有节点的dataIndex
+   */
+  private _updateDataIndexesAfterBatchInsert(insertIndex: number, insertCount: number) {
+    for (const node of this.treeIdToNodeMap.values()) {
+      if (node.dataIndex >= insertIndex) {
+        node.dataIndex += insertCount;
       }
     }
-
-    return true;
   }
 
   /**
-   * 开启批量操作模式（用于大量数据操作优化）
+   * 建立新节点的父子关系
    */
-  beginBatch() {
-    this.batchMode = true;
+  private _establishParentChildRelation(newNode: IndexTreeNode) {
+    const parts = newNode.treeId.split('.');
+
+    if (parts.length === 1) {
+      // 根级节点，挂载到虚拟根节点下
+      newNode.parentTreeId = '';
+      this.indexTreeRoot.children.push(newNode);
+      // 对根节点的子节点按dataIndex排序
+      this.indexTreeRoot.children.sort((a, b) => a.dataIndex - b.dataIndex);
+    } else {
+      // 子节点，找到其父节点
+      const parentTreeId = parts.slice(0, -1).join('.');
+      const parentNode = this.treeIdToNodeMap.get(parentTreeId);
+
+      if (parentNode) {
+        newNode.parentTreeId = parentTreeId;
+        parentNode.children.push(newNode);
+        // 对父节点的子节点按dataIndex排序
+        parentNode.children.sort((a, b) => a.dataIndex - b.dataIndex);
+      } else {
+        // 如果找不到父节点，暂时挂载到根节点
+        console.warn(`找不到父节点: ${parentTreeId} for ${newNode.treeId}`);
+        newNode.parentTreeId = '';
+        this.indexTreeRoot.children.push(newNode);
+        this.indexTreeRoot.children.sort((a, b) => a.dataIndex - b.dataIndex);
+      }
+    }
   }
 
   /**
-   * 结束批量操作模式并重建缓存
+   * 从父节点的children中移除节点
    */
-  endBatch() {
-    this.batchMode = false;
-    this.rebuildAllCaches();
+  private _removeNodeFromParent(node: IndexTreeNode) {
+    if (node.parentTreeId === '' || node.parentTreeId === null) {
+      // 从根节点移除
+      const index = this.indexTreeRoot.children.indexOf(node);
+      if (index > -1) {
+        this.indexTreeRoot.children.splice(index, 1);
+      }
+    } else {
+      // 从父节点移除
+      const parentNode = this.treeIdToNodeMap.get(node.parentTreeId);
+      if (parentNode) {
+        const index = parentNode.children.indexOf(node);
+        if (index > -1) {
+          parentNode.children.splice(index, 1);
+        }
+      }
+    }
   }
 
   /**
-   * 在批量操作模式下执行函数
-   * @param {Function} batchOperations - 批量操作函数
-   * @returns 函数执行结果
+   * 更新删除节点后所有节点的dataIndex
    */
-  withBatch(batchOperations: Function) {
-    const timeBegin = performance.now();
-    this.beginBatch();
+  private _updateDataIndexesAfterRemove(removedNodes: IndexTreeNode[]) {
+    // 按dataIndex降序排列的删除位置
+    const removedIndexes = removedNodes.map(node => node.dataIndex).sort((a, b) => b - a);
 
-    try {
-      const result = batchOperations();
-      return result;
-    } finally {
-      this.endBatch();
-      const timeEnd = performance.now();
-      console.log(`批量操作完成，耗时: ${timeEnd - timeBegin}ms`);
+    for (const node of this.treeIdToNodeMap.values()) {
+      let adjustment = 0;
+      for (const removedIndex of removedIndexes) {
+        if (node.dataIndex > removedIndex) {
+          adjustment++;
+        }
+      }
+      node.dataIndex -= adjustment;
     }
   }
 
   // ========== 树形数据增删查改操作 ==========
 
   /**
-   * 更新树形数据并重建缓存
-   * @param {Array} newTreeListData - 新的树形数据
+   * 更新树形数据并重建索引树
    */
   updateTreeData(newTreeListData: any[]) {
     this.treeListData = newTreeListData;
@@ -729,10 +601,7 @@ class TreeListIndexConvertor {
   }
 
   /**
-   * 添加新节点
-   * @param {any} nodeData - 节点数据，必须包含treeId
-   * @param {number} insertIndex - 插入位置，如果不指定则添加到末尾
-   * @returns {boolean} 是否添加成功
+   * 添加新节点（增量更新）
    */
   addNode(nodeData: any, insertIndex?: number): boolean {
     if (!nodeData || !nodeData.treeId) {
@@ -740,207 +609,123 @@ class TreeListIndexConvertor {
       return false;
     }
 
-    // 检查treeId是否已存在
-    if (this.treeIdToDataIndexMap.has(nodeData.treeId)) {
+    if (this.treeIdToNodeMap.has(nodeData.treeId)) {
       console.error(`节点 ${nodeData.treeId} 已存在`);
       return false;
     }
 
     const actualInsertIndex = insertIndex !== undefined ? insertIndex : this.treeListData.length;
 
-    // 插入节点
+    // 先插入数据
     this.treeListData.splice(actualInsertIndex, 0, nodeData);
 
-    // 在批量模式下跳过缓存更新，等待批量结束时统一重建
-    if (this.batchMode) {
-      return true;
-    }
+    // 更新所有受影响节点的dataIndex
+    this._updateDataIndexesAfterInsert(actualInsertIndex);
 
-    // 对于大数据量，直接重建缓存比增量更新更高效
-    if (this.treeListData.length > 10000) {
-      this.rebuildAllCaches();
-    } else {
-      // 小数据量时使用增量更新
-      this._updateBasicCachesAfterInsert(nodeData.treeId, actualInsertIndex);
-      this._clearStateDependentCaches();
-    }
+    // 创建新的索引节点
+    const newNode: IndexTreeNode = {
+      treeId: nodeData.treeId,
+      dataIndex: actualInsertIndex,
+      parentTreeId: null,
+      children: [],
+      isCollapsed: false
+    };
+
+    // 添加到映射表
+    this.treeIdToNodeMap.set(nodeData.treeId, newNode);
+
+    // 建立父子关系
+    this._establishParentChildRelation(newNode);
+
+    // 只清除可见行缓存
+    this._clearVisibleCache();
 
     return true;
   }
 
   /**
-   * 删除节点（包括其所有子孙节点）
-   * @param {string} treeId - 要删除的节点treeId
-   * @returns {number[]} 删除的节点行号数组
+   * 删除节点（包括其所有子孙节点）（增量更新）
    */
-  removeNode(treeId: string): any[] {
-    const dataIndex = this.treeIdToDataIndexMap.get(treeId);
-    if (dataIndex === undefined) {
+  removeNode(treeId: string): number[] {
+    const node = this.treeIdToNodeMap.get(treeId);
+    if (!node) {
       console.error(`节点 ${treeId} 不存在`);
       return [];
     }
 
-    // 找到所有要删除的节点（包括子孙节点）
-    const nodesToRemove: number[] = [];
+    // 收集要删除的所有节点（包括子孙节点）
+    const nodesToRemove: IndexTreeNode[] = [];
     const rowsToRemove: number[] = [];
 
-    // 添加当前节点
-    nodesToRemove.push(dataIndex);
-    rowsToRemove.push(this.indexToRow(dataIndex));
+    this._collectNodesToRemove(node, nodesToRemove);
 
-    // 添加所有子孙节点
-    for (let i = 0; i < this.treeListData.length; i++) {
-      const item = this.treeListData[i];
-      if (item.treeId.startsWith(treeId + '.')) {
-        nodesToRemove.push(i);
-        rowsToRemove.push(this.indexToRow(i));
+    // 收集行号
+    for (const nodeToRemove of nodesToRemove) {
+      const rowIndex = this.indexToRow(nodeToRemove.dataIndex);
+      if (rowIndex !== null) {
+        rowsToRemove.push(rowIndex);
       }
     }
 
-    // 按索引降序排列，从后往前删除
-    nodesToRemove.sort((a, b) => b - a);
+    // 按dataIndex降序排列，从后往前删除
+    nodesToRemove.sort((a, b) => b.dataIndex - a.dataIndex);
 
-    // 删除节点
-    for (const index of nodesToRemove) {
-      this.treeListData.splice(index, 1);
+    // 先从父节点的children中移除
+    this._removeNodeFromParent(node);
+
+    // 删除数据和索引映射
+    for (const nodeToRemove of nodesToRemove) {
+      this.treeListData.splice(nodeToRemove.dataIndex, 1);
+      this.treeIdToNodeMap.delete(nodeToRemove.treeId);
     }
 
-    // 在批量模式下跳过缓存更新
-    if (!this.batchMode) {
-      // 重建所有缓存（因为索引发生了变化）
-      this.rebuildAllCaches();
-    }
+    // 更新所有受影响节点的dataIndex
+    this._updateDataIndexesAfterRemove(nodesToRemove);
+
+    // 只清除可见行缓存
+    this._clearVisibleCache();
 
     return rowsToRemove;
   }
 
   /**
+   * 收集要删除的节点（包括子孙节点）
+   */
+  private _collectNodesToRemove(node: IndexTreeNode, result: IndexTreeNode[]) {
+    result.push(node);
+    for (const child of node.children) {
+      this._collectNodesToRemove(child, result);
+    }
+  }
+
+  /**
    * 更新节点数据
-   * @param {string} treeId - 节点的treeId
-   * @param {any} newData - 新的节点数据
-   * @returns {boolean} 是否更新成功
    */
   updateNode(treeId: string, newData: any): boolean {
-    const dataIndex = this.treeIdToDataIndexMap.get(treeId);
-    if (dataIndex === undefined) {
+    const node = this.treeIdToNodeMap.get(treeId);
+    if (!node) {
       console.error(`节点 ${treeId} 不存在`);
       return false;
     }
 
-    // 确保新数据保持相同的treeId
     newData.treeId = treeId;
+    this.treeListData[node.dataIndex] = newData;
 
-    // 更新节点数据
-    this.treeListData[dataIndex] = newData;
-
-    // 在批量模式下跳过缓存更新
-    if (!this.batchMode) {
-      // 清除依赖缓存（不需要重建基础结构缓存，因为treeId没有变化）
-      this._clearStateDependentCaches();
-    }
-
+    this._clearVisibleCache();
     return true;
   }
 
   /**
    * 查找节点
-   * @param {string} treeId - 节点的treeId
-   * @returns {any|null} 节点数据，如果不存在返回null
    */
   findNode(treeId: string): any | null {
-    const dataIndex = this.treeIdToDataIndexMap.get(treeId);
-    if (dataIndex === undefined) {
-      return null;
-    }
-    return this.treeListData[dataIndex];
+    const node = this.treeIdToNodeMap.get(treeId);
+    if (!node) return null;
+    return this.treeListData[node.dataIndex];
   }
 
   /**
-   * 移动节点到新位置
-   * @param {string} treeId - 要移动的节点treeId
-   * @param {number} newIndex - 新的位置索引
-   * @returns {boolean} 是否移动成功
-   */
-  moveNode(treeId: string, newIndex: number): boolean {
-    const currentIndex = this.treeIdToDataIndexMap.get(treeId);
-    if (currentIndex === undefined) {
-      console.error(`节点 ${treeId} 不存在`);
-      return false;
-    }
-
-    if (newIndex < 0 || newIndex >= this.treeListData.length) {
-      console.error('新位置索引超出范围');
-      return false;
-    }
-
-    if (currentIndex === newIndex) {
-      return true; // 位置没有变化
-    }
-
-    // 移动节点
-    const nodeData = this.treeListData.splice(currentIndex, 1)[0];
-    const actualNewIndex = newIndex > currentIndex ? newIndex - 1 : newIndex;
-    this.treeListData.splice(actualNewIndex, 0, nodeData);
-
-    // 在批量模式下跳过缓存更新
-    if (!this.batchMode) {
-      // 重建所有缓存（因为索引发生了变化）
-      this.rebuildAllCaches();
-    }
-
-    return true;
-  }
-
-  /**
-   * 移动节点到另一个父节点下
-   * @param {string} treeId - 要移动的节点treeId
-   * @param {string} newParentTreeId - 新父节点的treeId，如果为空则移动到根级
-   * @param {number} insertIndex - 在新父节点下的插入位置，如果不指定则添加到末尾
-   * @returns {boolean} 是否移动成功
-   */
-  moveNodeToParent(treeId: string, newParentTreeId: string | null, insertIndex?: number): boolean {
-    const nodeData = this.findNode(treeId);
-    if (!nodeData) {
-      console.error(`节点 ${treeId} 不存在`);
-      return false;
-    }
-
-    // 检查是否会形成循环引用
-    if (newParentTreeId && (newParentTreeId === treeId || newParentTreeId.startsWith(treeId + '.'))) {
-      console.error('不能将节点移动到自己或自己的子节点下');
-      return false;
-    }
-
-    // 生成新的treeId
-    const oldTreeId = treeId;
-    const treeIdParts = treeId.split('.');
-    const nodeId = treeIdParts[treeIdParts.length - 1];
-    const newTreeId = newParentTreeId ? `${newParentTreeId}.${nodeId}` : nodeId;
-
-    // 更新当前节点和所有子孙节点的treeId
-    const nodesToUpdate = this.getDescendantNodes(oldTreeId);
-    nodesToUpdate.unshift({ data: nodeData, rowIndex: null }); // 添加当前节点
-
-    for (const item of nodesToUpdate) {
-      const currentTreeId = item.data.treeId;
-      const newCurrentTreeId = currentTreeId.replace(oldTreeId, newTreeId);
-      item.data.treeId = newCurrentTreeId;
-    }
-
-    // 在批量模式下跳过缓存更新
-    if (!this.batchMode) {
-      // 重建所有缓存
-      this.rebuildAllCaches();
-    }
-
-    return true;
-  }
-
-  /**
-   * 批量添加节点
-   * @param {Array} nodesData - 节点数据数组
-   * @param {number} insertIndex - 插入位置，如果不指定则添加到末尾
-   * @returns {boolean} 是否添加成功
+   * 批量添加节点（增量更新）
    */
   addNodes(nodesData: any[], insertIndex?: number): boolean {
     if (!Array.isArray(nodesData) || nodesData.length === 0) {
@@ -955,7 +740,7 @@ class TreeListIndexConvertor {
         console.error('所有节点数据必须包含treeId');
         return false;
       }
-      if (this.treeIdToDataIndexMap.has(nodeData.treeId)) {
+      if (this.treeIdToNodeMap.has(nodeData.treeId)) {
         console.error(`节点 ${nodeData.treeId} 已存在`);
         return false;
       }
@@ -963,63 +748,35 @@ class TreeListIndexConvertor {
 
     const actualInsertIndex = insertIndex !== undefined ? insertIndex : this.treeListData.length;
 
-    // 批量插入节点 - 使用安全的数组插入避免调用栈溢出
-    this.treeListData = this._safeArrayInsert(this.treeListData, actualInsertIndex, nodesData);
+    // 先插入数据
+    this.treeListData.splice(actualInsertIndex, 0, ...nodesData);
 
-    // 批量操作总是重建所有缓存，这比增量更新更高效
-    this.rebuildAllCaches();
+    // 更新所有受影响节点的dataIndex
+    this._updateDataIndexesAfterBatchInsert(actualInsertIndex, nodesData.length);
+
+    // 批量创建索引节点并建立关系
+    for (let i = 0; i < nodesData.length; i++) {
+      const nodeData = nodesData[i];
+      const newNode: IndexTreeNode = {
+        treeId: nodeData.treeId,
+        dataIndex: actualInsertIndex + i,
+        parentTreeId: null,
+        children: [],
+        isCollapsed: false
+      };
+
+      this.treeIdToNodeMap.set(nodeData.treeId, newNode);
+      this._establishParentChildRelation(newNode);
+    }
+
+    // 只清除可见行缓存
+    this._clearVisibleCache();
 
     const timeEnd = performance.now();
     console.log(`addNodes (${nodesData.length} nodes) time: ${timeEnd - timeBegin}ms`);
 
     return true;
   }
-
-  /**
-   * 在插入节点后更新基础缓存（仅用于小数据量的增量更新）
-   * @param {string} treeId - 新插入节点的treeId
-   * @param {number} insertIndex - 插入位置
-   */
-  private _updateBasicCachesAfterInsert(treeId: string, insertIndex: number) {
-    // 更新treeId映射
-    this.treeIdToDataIndexMap.set(treeId, insertIndex);
-
-    // 优化：收集需要更新的entries，避免在迭代中修改Map
-    const entriesToUpdate: Array<[string, number]> = [];
-    for (const [id, index] of this.treeIdToDataIndexMap) {
-      if (index >= insertIndex && id !== treeId) {
-        entriesToUpdate.push([id, index + 1]);
-      }
-    }
-
-    // 批量更新treeId映射
-    for (const [id, newIndex] of entriesToUpdate) {
-      this.treeIdToDataIndexMap.set(id, newIndex);
-    }
-
-    // 优化：直接遍历并更新parentToChildrenMap中的dataIndex
-    for (const children of this.parentToChildrenMap.values()) {
-      for (const child of children) {
-        if (child.dataIndex >= insertIndex && child.treeId !== treeId) {
-          child.dataIndex++;
-        }
-      }
-    }
-
-    // 添加新节点到父子关系缓存
-    const parts = treeId.split('.');
-    if (parts.length > 1) {
-      const parentTreeId = parts.slice(0, -1).join('.');
-      if (!this.parentToChildrenMap.has(parentTreeId)) {
-        this.parentToChildrenMap.set(parentTreeId, []);
-      }
-      this.parentToChildrenMap.get(parentTreeId)!.push({
-        dataIndex: insertIndex,
-        treeId: treeId
-      });
-    }
-  }
 }
 
-// 默认导出
 export default TreeListIndexConvertor;
